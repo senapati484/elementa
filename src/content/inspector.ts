@@ -43,7 +43,7 @@ export class InspectorManager {
       this.overlay.mount();
     }
 
-    // Attach capture-phase event listeners to guarantee blocking host interactions
+    // Attach capture-phase event listeners to guarantee intercepting before host page
     window.addEventListener('mousemove', this.handleMouseMove, { capture: true, passive: true });
     window.addEventListener('click', this.handleClick, { capture: true });
     window.addEventListener('keydown', this.handleKeyDown, { capture: true });
@@ -57,7 +57,6 @@ export class InspectorManager {
     if (!this.isInspecting) return;
     this.isInspecting = false;
 
-    // Remove event listeners
     window.removeEventListener('mousemove', this.handleMouseMove, { capture: true });
     window.removeEventListener('click', this.handleClick, { capture: true });
     window.removeEventListener('keydown', this.handleKeyDown, { capture: true });
@@ -102,7 +101,6 @@ export class InspectorManager {
     if (this.rafId) cancelAnimationFrame(this.rafId);
 
     this.rafId = requestAnimationFrame(() => {
-      // Find element under cursor ignoring overlay
       const target = this.getInspectableElementAt(e.clientX, e.clientY);
       if (!target || target === this.hoveredElement) return;
 
@@ -118,7 +116,6 @@ export class InspectorManager {
         }
       }
 
-      // Send hovered summary to sidepanel
       const summary = this.buildElementSummary(target);
       const msg: ElementHoveredMessage = {
         type: 'ELEMENT_HOVERED',
@@ -134,7 +131,7 @@ export class InspectorManager {
   private handleClick(e: MouseEvent): void {
     if (!this.isInspecting) return;
 
-    // Block navigation, link clicks, and form submissions on host page
+    // Block navigation, link clicks, form submissions, and host event listeners
     e.preventDefault();
     e.stopPropagation();
     e.stopImmediatePropagation();
@@ -160,7 +157,6 @@ export class InspectorManager {
       }
     }
 
-    // Set up MutationObserver to gracefully handle page removing this element
     this.observeElement(el);
 
     const summary = this.buildElementSummary(el);
@@ -198,9 +194,18 @@ export class InspectorManager {
   }
 
   public navigateParent(): void {
-    if (!this.selectedElement || !this.selectedElement.parentElement) return;
-    const parent = this.selectedElement.parentElement;
-    if (parent === document.documentElement) return;
+    if (!this.selectedElement) return;
+    
+    // Support Shadow Root parent traversal
+    let parent: Element | null = this.selectedElement.parentElement;
+    if (!parent) {
+      const root = this.selectedElement.getRootNode();
+      if (root instanceof ShadowRoot) {
+        parent = root.host;
+      }
+    }
+
+    if (!parent || parent === document.documentElement) return;
 
     this.childNavigationStack.push(this.selectedElement);
     this.selectElement(parent);
@@ -215,9 +220,13 @@ export class InspectorManager {
       }
     }
 
-    // Default to first element child
-    if (this.selectedElement && this.selectedElement.firstElementChild) {
-      this.selectElement(this.selectedElement.firstElementChild);
+    if (this.selectedElement) {
+      // Check shadow root children or direct children
+      if (this.selectedElement.shadowRoot && this.selectedElement.shadowRoot.firstElementChild) {
+        this.selectElement(this.selectedElement.shadowRoot.firstElementChild);
+      } else if (this.selectedElement.firstElementChild) {
+        this.selectElement(this.selectedElement.firstElementChild);
+      }
     }
   }
 
@@ -301,7 +310,7 @@ export class InspectorManager {
 
     this.mutationObserver = new MutationObserver(() => {
       if (!document.contains(el)) {
-        console.warn('[Elementa] Selected element was removed from DOM by page mutation');
+        console.warn('[Elementa] Selected element was removed from DOM');
         this.deselect();
       }
     });
@@ -311,12 +320,24 @@ export class InspectorManager {
     }
   }
 
+  // Recursive Shadow DOM Piercing element picker
   private getInspectableElementAt(x: number, y: number): Element | null {
     const elements = document.elementsFromPoint(x, y);
-    for (const el of elements) {
+    for (let el of elements) {
       if (el.getAttribute && el.getAttribute('data-elementa-ignore')) continue;
       if (el.closest && el.closest('#elementa-overlay-root')) continue;
       if (el === document.body || el === document.documentElement) continue;
+
+      // Pierce open Shadow Root if present
+      while (el && (el as any).shadowRoot) {
+        const inner = (el as any).shadowRoot.elementFromPoint(x, y);
+        if (inner && inner !== el) {
+          el = inner;
+        } else {
+          break;
+        }
+      }
+
       return el;
     }
     return null;
@@ -324,17 +345,20 @@ export class InspectorManager {
 
   private buildElementSummary(el: Element): ElementSummary {
     const rect = el.getBoundingClientRect();
+    const rawClass = typeof el.className === 'string' ? el.className : el.getAttribute('class') || '';
+    const classList = rawClass.trim() ? rawClass.trim().split(/\s+/) : [];
+
     return {
       tagName: el.tagName.toLowerCase(),
       id: el.id || undefined,
-      classList: Array.from(el.classList || []),
+      classList,
       rect: {
         top: Math.round(rect.top),
         left: Math.round(rect.left),
         width: Math.round(rect.width),
         height: Math.round(rect.height),
       },
-      snippet: el.outerHTML.slice(0, 180),
+      snippet: el.outerHTML ? el.outerHTML.slice(0, 180) : `<${el.tagName.toLowerCase()}>`,
       domPath: getElementDOMPath(el),
     };
   }
@@ -345,15 +369,28 @@ export class InspectorManager {
     let depth = 0;
 
     while (current && current !== document.documentElement) {
+      const rawClass = typeof current.className === 'string' ? current.className : current.getAttribute('class') || '';
+      const classList = rawClass.trim() ? rawClass.trim().split(/\s+/) : [];
+
       items.unshift({
         tagName: current.tagName.toLowerCase(),
         id: current.id || undefined,
-        classList: Array.from(current.classList || []),
+        classList,
         domPath: getElementDOMPath(current),
         depth: depth++,
         isCurrent: current === el,
       });
-      current = current.parentElement;
+
+      if (current.parentElement) {
+        current = current.parentElement;
+      } else {
+        const root = current.getRootNode();
+        if (root instanceof ShadowRoot) {
+          current = root.host;
+        } else {
+          break;
+        }
+      }
     }
 
     return items;
@@ -373,7 +410,7 @@ export class InspectorManager {
   private safeSendMessage(msg: any): void {
     try {
       chrome.runtime.sendMessage(msg).catch(() => {
-        // Suppress errors when side panel or background is momentarily closed
+        // Suppress errors when side panel is closed
       });
     } catch {
       // Ignore

@@ -1,19 +1,21 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { ExtractedAsset } from '../shared/types';
-import { Image, Film, FileCode, Download, ExternalLink } from 'lucide-react';
+import { Image, Film, FileCode, Download, ExternalLink, Copy, Check } from 'lucide-react';
 
 interface AssetListProps {
   assets: ExtractedAsset[];
 }
 
 export const AssetList: React.FC<AssetListProps> = ({ assets }) => {
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
   if (!assets || assets.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center p-8 text-center text-slate-500 bg-dark-surface border border-dark-border rounded-lg h-full">
         <Image size={32} className="mb-2 opacity-40" />
         <p className="text-sm font-medium">No media assets detected</p>
         <p className="text-xs text-slate-600 mt-1">
-          Images, SVGs, and videos in the selected component will appear here.
+          Images, SVGs, background images, and videos in the selected component will appear here.
         </p>
       </div>
     );
@@ -21,18 +23,41 @@ export const AssetList: React.FC<AssetListProps> = ({ assets }) => {
 
   const handleDownloadSingle = async (asset: ExtractedAsset) => {
     try {
-      const resp = await fetch(asset.resolvedUrl);
-      const blob = await resp.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = asset.filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      // Use background service worker to bypass CORS
+      const resp = await chrome.runtime.sendMessage({
+        type: 'FETCH_ASSET_BLOB',
+        payload: { url: asset.resolvedUrl },
+      });
+
+      if (resp && resp.success && resp.dataUri) {
+        const a = document.createElement('a');
+        a.href = resp.dataUri;
+        a.download = asset.filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        return;
+      }
+    } catch {
+      // Fallback
+    }
+    window.open(asset.resolvedUrl, '_blank');
+  };
+
+  const handleCopyDataUri = async (asset: ExtractedAsset) => {
+    try {
+      const resp = await chrome.runtime.sendMessage({
+        type: 'FETCH_ASSET_BLOB',
+        payload: { url: asset.resolvedUrl },
+      });
+
+      if (resp && resp.success && resp.dataUri) {
+        await navigator.clipboard.writeText(resp.dataUri);
+        setCopiedId(asset.id);
+        setTimeout(() => setCopiedId(null), 2000);
+      }
     } catch (e) {
-      window.open(asset.resolvedUrl, '_blank');
+      console.warn('Failed to copy data URI:', e);
     }
   };
 
@@ -42,7 +67,7 @@ export const AssetList: React.FC<AssetListProps> = ({ assets }) => {
         <span className="font-semibold text-slate-300">
           Detected Assets ({assets.length})
         </span>
-        <span className="text-[11px] text-slate-500">Auto-resolved to absolute URLs</span>
+        <span className="text-[11px] text-slate-500">CORS-free downloads enabled</span>
       </div>
 
       <div className="flex-1 overflow-y-auto p-3 space-y-2.5">
@@ -50,6 +75,7 @@ export const AssetList: React.FC<AssetListProps> = ({ assets }) => {
           const isImage = asset.type === 'image' || asset.type === 'background';
           const isVideo = asset.type === 'video';
           const isSvg = asset.type === 'svg';
+          const isCopied = copiedId === asset.id;
 
           return (
             <div
@@ -95,6 +121,13 @@ export const AssetList: React.FC<AssetListProps> = ({ assets }) => {
               <div className="flex items-center gap-1">
                 {asset.resolvedUrl !== 'inline-svg' && (
                   <>
+                    <button
+                      onClick={() => handleCopyDataUri(asset)}
+                      title="Copy as Base64 Data URI"
+                      className="p-1.5 rounded hover:bg-slate-700 text-slate-400 hover:text-indigo-300 transition"
+                    >
+                      {isCopied ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
+                    </button>
                     <button
                       onClick={() => handleDownloadSingle(asset)}
                       title="Download file"

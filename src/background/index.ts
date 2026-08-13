@@ -34,7 +34,7 @@ chrome.action.onClicked.addListener(async (tab) => {
   }
 });
 
-// Message router between Side Panel and Content Script
+// Message router & Cross-Origin Asset Fetcher
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (!message || !message.type) return false;
 
@@ -43,7 +43,48 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return false;
   }
 
-  // Handle sidepanel requests that need to route to the active tab's content script
+  // Cross-Origin Asset Fetcher (bypasses CORS restrictions using host_permissions)
+  if (message.type === 'FETCH_ASSET_BLOB') {
+    (async () => {
+      try {
+        const url = message.payload?.url;
+        if (!url) {
+          sendResponse({ success: false, error: 'No URL provided' });
+          return;
+        }
+
+        const response = await fetch(url);
+        if (!response.ok) {
+          sendResponse({ success: false, error: `HTTP ${response.status} ${response.statusText}` });
+          return;
+        }
+
+        const blob = await response.blob();
+        const mimeType = blob.type || 'application/octet-stream';
+        
+        // Convert blob to base64 data URI
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          sendResponse({
+            success: true,
+            dataUri: reader.result as string,
+            mimeType,
+            sizeBytes: blob.size,
+          });
+        };
+        reader.onerror = () => {
+          sendResponse({ success: false, error: 'Failed to convert blob to data URI' });
+        };
+        reader.readAsDataURL(blob);
+      } catch (err: any) {
+        console.warn('[Elementa] Background fetch failed for URL:', message.payload?.url, err);
+        sendResponse({ success: false, error: err?.message || 'Network fetch failed' });
+      }
+    })();
+    return true; // Keep channel open for async response
+  }
+
+  // Handle sidepanel requests that route to active tab content script
   if (
     message.type === 'START_INSPECT' ||
     message.type === 'STOP_INSPECT' ||
@@ -74,7 +115,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           const response = await chrome.tabs.sendMessage(activeTab.id, message);
           sendResponse(response);
         } catch (err: any) {
-          // If content script was not injected on an existing tab before extension was installed, inject it
+          // If content script was not yet injected on an existing tab before extension was installed, inject it
           console.log('[Elementa] Injecting content script into active tab:', activeTab.id);
           const manifest = chrome.runtime.getManifest();
           const scriptFiles = manifest.content_scripts?.[0]?.js || [];

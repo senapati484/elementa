@@ -26,7 +26,6 @@ export function classifyClasses(classList: string[]): {
     }
   }
 
-  // If at least 50% of classes are Tailwind (or if there are 3+ Tailwind classes)
   const isTailwindElement =
     (classList.length > 0 && tailwindClasses.length / classList.length >= 0.5) ||
     tailwindClasses.length >= 3;
@@ -40,41 +39,27 @@ export function calculateSpecificity(selector: string): number {
   let classCount = 0;
   let tagCount = 0;
 
-  // Clean selector for counting
-  // Replace escaped colons or brackets
   const cleanSelector = selector.replace(/\\./g, '_');
 
-  // Match IDs
   const ids = cleanSelector.match(/#[a-zA-Z0-9_-]+/g);
   if (ids) idCount += ids.length;
 
-  // Match Classes
   const classes = cleanSelector.match(/\.[a-zA-Z0-9_-]+/g);
   if (classes) classCount += classes.length;
 
-  // Match Attribute selectors [type="text"]
   const attrs = cleanSelector.match(/\[[^\]]+\]/g);
   if (attrs) classCount += attrs.length;
 
-  // Match Pseudo-elements (::before, ::after, ::placeholder, etc.)
   const pseudoElements = cleanSelector.match(/::[a-zA-Z0-9_-]+/g);
   if (pseudoElements) tagCount += pseudoElements.length;
 
-  // Match Pseudo-classes (:hover, :focus, :first-child, etc. NOT ::)
   const pseudoClasses = cleanSelector.replace(/::[a-zA-Z0-9_-]+/g, '').match(/:[a-zA-Z0-9_-]+(?:\([^)]*\))?/g);
   if (pseudoClasses) {
-    for (const pc of pseudoClasses) {
-      if (pc.startsWith(':not(') || pc.startsWith(':is(') || pc.startsWith(':has(')) {
-        // Pseudo functions: handled recursively or simplified
-        classCount += 1;
-      } else {
-        classCount += 1;
-      }
+    for (const _ of pseudoClasses) {
+      classCount += 1;
     }
   }
 
-  // Match Tags
-  // Remove IDs, classes, attrs, pseudos, combinators
   const simplified = cleanSelector
     .replace(/#[a-zA-Z0-9_-]+/g, ' ')
     .replace(/\.[a-zA-Z0-9_-]+/g, ' ')
@@ -88,7 +73,6 @@ export function calculateSpecificity(selector: string): number {
   return idCount * 100 + classCount * 10 + tagCount * 1;
 }
 
-// Pseudo selector detection and stripping
 export function parsePseudoSelector(selector: string): {
   baseSelector: string;
   pseudo: string | null;
@@ -105,7 +89,50 @@ export function parsePseudoSelector(selector: string): {
   return { baseSelector: selector, pseudo: null };
 }
 
-// Extract matched rules across all loaded stylesheets
+// Essential CSS properties to capture from computed style if rules don't cover them
+const ESSENTIAL_COMPUTED_PROPS = [
+  'display',
+  'flex-direction',
+  'flex-wrap',
+  'align-items',
+  'justify-content',
+  'gap',
+  'grid-template-columns',
+  'grid-template-rows',
+  'position',
+  'color',
+  'background-color',
+  'background-image',
+  'font-family',
+  'font-size',
+  'font-weight',
+  'line-height',
+  'letter-spacing',
+  'text-align',
+  'border-radius',
+  'border-width',
+  'border-style',
+  'border-color',
+  'box-shadow',
+  'padding-top',
+  'padding-right',
+  'padding-bottom',
+  'padding-left',
+  'margin-top',
+  'margin-right',
+  'margin-bottom',
+  'margin-left',
+  'width',
+  'height',
+  'max-width',
+  'min-width',
+  'overflow',
+  'cursor',
+  'opacity',
+  'z-index',
+];
+
+// Extract matched rules across all loaded stylesheets + Shadow DOM roots + adoptedStyleSheets
 export function extractMatchedRules(
   el: Element,
   doc: Document = document
@@ -118,33 +145,107 @@ export function extractMatchedRules(
   const pseudoRules: PseudoRule[] = [];
   let skippedSheetsCount = 0;
 
-  let styleSheets: CSSStyleSheet[] = [];
+  // Gather all style sheets (Document + Shadow Roots + Adopted)
+  const allSheets: CSSStyleSheet[] = [];
+
+  // 1. Document StyleSheets
   try {
-    styleSheets = Array.from(doc.styleSheets || []);
-  } catch (e) {
-    return { matchedRules, pseudoRules, skippedSheetsCount: 1 };
+    if (doc.styleSheets) {
+      allSheets.push(...Array.from(doc.styleSheets));
+    }
+  } catch {
+    skippedSheetsCount++;
   }
 
-  for (let sIdx = 0; sIdx < styleSheets.length; sIdx++) {
-    const sheet = styleSheets[sIdx];
+  // 2. Document Adopted StyleSheets
+  try {
+    if ((doc as any).adoptedStyleSheets) {
+      allSheets.push(...Array.from((doc as any).adoptedStyleSheets as CSSStyleSheet[]));
+    }
+  } catch {
+    // Ignore
+  }
+
+  // 3. Check if element is inside ShadowRoot
+  try {
+    const rootNode = el.getRootNode();
+    if (rootNode instanceof ShadowRoot) {
+      if ((rootNode as any).adoptedStyleSheets) {
+        allSheets.push(...Array.from((rootNode as any).adoptedStyleSheets as CSSStyleSheet[]));
+      }
+      const shadowStyles = rootNode.querySelectorAll('style');
+      shadowStyles.forEach((s) => {
+        if (s.sheet) allSheets.push(s.sheet);
+      });
+    }
+  } catch {
+    // Ignore
+  }
+
+  for (let sIdx = 0; sIdx < allSheets.length; sIdx++) {
+    const sheet = allSheets[sIdx];
     let cssRules: CSSRuleList;
     try {
       cssRules = sheet.cssRules;
       if (!cssRules) continue;
-    } catch (e) {
-      // CORS-restricted external stylesheet (e.g. Google Fonts or CDN)
+    } catch {
+      // CORS-restricted stylesheet
       skippedSheetsCount++;
       continue;
     }
 
     try {
-      scanRules(cssRules, el, sheet.href || `stylesheet-${sIdx}`, matchedRules, pseudoRules);
+      scanRules(cssRules, el, sheet.href || `sheet-${sIdx}`, matchedRules, pseudoRules);
     } catch (e) {
       console.warn('[Elementa] Error parsing CSS rules:', e);
     }
   }
 
+  // Fallback: If element is not Tailwind and has very few matched rules, extract essential computed styles
+  const { isTailwindElement } = classifyClasses(Array.from(el.classList || []));
+  if (!isTailwindElement && matchedRules.length === 0 && el instanceof HTMLElement) {
+    try {
+      const computed = window.getComputedStyle(el);
+      const computedProperties: StyleProperty[] = [];
+
+      for (const prop of ESSENTIAL_COMPUTED_PROPS) {
+        const val = computed.getPropertyValue(prop);
+        if (val && !isDefaultOrInheritedValue(prop, val)) {
+          computedProperties.push({
+            property: prop,
+            value: val,
+            important: false,
+          });
+        }
+      }
+
+      if (computedProperties.length > 0) {
+        const selector = el.id ? `#${el.id}` : el.className ? `.${el.className.trim().split(/\s+/)[0]}` : el.tagName.toLowerCase();
+        matchedRules.push({
+          selector,
+          properties: computedProperties,
+          specificity: 1,
+          sourceSheet: 'computed-fallback',
+        });
+      }
+    } catch {
+      // Ignore
+    }
+  }
+
   return { matchedRules, pseudoRules, skippedSheetsCount };
+}
+
+function isDefaultOrInheritedValue(prop: string, val: string): boolean {
+  if (!val || val === 'none' || val === 'normal' || val === 'auto' || val === '0px' || val === 'rgba(0, 0, 0, 0)') {
+    if (prop === 'display' && val !== 'none') return false;
+    if (prop === 'border-radius' && val === '0px') return true;
+    if (prop === 'margin-top' && val === '0px') return true;
+    if (prop === 'padding-top' && val === '0px') return true;
+    if (prop === 'box-shadow' && val === 'none') return true;
+    if (prop === 'background-color' && (val === 'rgba(0, 0, 0, 0)' || val === 'transparent')) return true;
+  }
+  return false;
 }
 
 function scanRules(
@@ -157,7 +258,6 @@ function scanRules(
   for (let i = 0; i < rules.length; i++) {
     const rule = rules[i];
 
-    // Handle @media / @supports / @layer grouping rules
     if ('cssRules' in rule && (rule as CSSGroupingRule).cssRules) {
       scanRules((rule as CSSGroupingRule).cssRules, el, sourceSheet, matchedRules, pseudoRules);
       continue;
@@ -168,14 +268,12 @@ function scanRules(
     const selectorText = styleRule.selectorText;
     if (!selectorText) continue;
 
-    // Split multiple comma-separated selectors (e.g. .btn, .button)
     const subSelectors = selectorText.split(',').map((s) => s.trim());
 
     for (const subSelector of subSelectors) {
       const { baseSelector, pseudo } = parsePseudoSelector(subSelector);
 
       if (pseudo) {
-        // Check if base element matches the base selector
         let baseMatches = false;
         try {
           if (baseSelector === '*' || el.matches(baseSelector)) {
@@ -186,7 +284,7 @@ function scanRules(
         }
 
         if (baseMatches) {
-          const properties = extractRuleProperties(styleRule.style);
+          const properties = extractRuleProperties(styleRule.style, el);
           if (properties.length > 0) {
             pseudoRules.push({
               pseudo: pseudo as any,
@@ -196,7 +294,6 @@ function scanRules(
           }
         }
       } else {
-        // Direct element match check
         let matches = false;
         try {
           matches = el.matches(subSelector);
@@ -206,7 +303,7 @@ function scanRules(
 
         if (matches) {
           const specificity = calculateSpecificity(subSelector);
-          const properties = extractRuleProperties(styleRule.style);
+          const properties = extractRuleProperties(styleRule.style, el);
           if (properties.length > 0) {
             matchedRules.push({
               selector: subSelector,
@@ -221,15 +318,21 @@ function scanRules(
   }
 }
 
-function extractRuleProperties(style: CSSStyleDeclaration): StyleProperty[] {
+function extractRuleProperties(style: CSSStyleDeclaration, contextEl?: Element): StyleProperty[] {
   const properties: StyleProperty[] = [];
   if (!style) return properties;
 
   for (let i = 0; i < style.length; i++) {
     const propName = style[i];
-    const value = style.getPropertyValue(propName);
+    let value = style.getPropertyValue(propName);
     const priority = style.getPropertyPriority(propName);
+
     if (value && value.trim()) {
+      // Resolve CSS Custom Properties (var(--...)) to actual values if context element is provided
+      if (contextEl && value.includes('var(--')) {
+        value = resolveCssVariables(value, contextEl);
+      }
+
       properties.push({
         property: propName,
         value: value.trim(),
@@ -240,12 +343,24 @@ function extractRuleProperties(style: CSSStyleDeclaration): StyleProperty[] {
   return properties;
 }
 
+function resolveCssVariables(cssValue: string, el: Element): string {
+  try {
+    const computed = window.getComputedStyle(el);
+    return cssValue.replace(/var\((--[a-zA-Z0-9_-]+)(?:,\s*([^)]+))?\)/g, (_, varName, fallback) => {
+      const resolved = computed.getPropertyValue(varName)?.trim();
+      if (resolved) return resolved;
+      return fallback || varName;
+    });
+  } catch {
+    return cssValue;
+  }
+}
+
 // Cascade resolution and property deduplication
 export function resolveCascadeProperties(
   matchedRules: StyleRule[],
   inlineStyle: CSSStyleDeclaration | Record<string, string>
 ): Map<string, { value: string; selector: string; important: boolean }> {
-  // Map of propertyName -> winning definition
   const resolved = new Map<
     string,
     { value: string; selector: string; important: boolean; specificity: number; sourceIndex: number }
@@ -266,10 +381,6 @@ export function resolveCascadeProperties(
           sourceIndex: ruleIndex,
         });
       } else {
-        // Cascade rules:
-        // 1. !important always beats non-!important
-        // 2. Higher specificity wins
-        // 3. If equal specificity, later source index wins
         let wins = false;
         if (prop.important && !existing.important) {
           wins = true;
@@ -296,7 +407,7 @@ export function resolveCascadeProperties(
     }
   }
 
-  // Merge inline styles (inline specificity is 1000)
+  // Merge inline styles
   if (inlineStyle) {
     if (typeof (inlineStyle as CSSStyleDeclaration).getPropertyValue === 'function') {
       const decl = inlineStyle as CSSStyleDeclaration;
@@ -338,7 +449,6 @@ export function resolveCascadeProperties(
     }
   }
 
-  // Return clean map
   const cleanResult = new Map<string, { value: string; selector: string; important: boolean }>();
   for (const [k, v] of resolved.entries()) {
     cleanResult.set(k, { value: v.value, selector: v.selector, important: v.important });
@@ -347,11 +457,11 @@ export function resolveCascadeProperties(
   return cleanResult;
 }
 
-// Recursive Element Extractor with depth/node limit
+// Recursive Element Extractor with full Shadow DOM and SVG support
 export function extractElementTree(
   rootEl: Element,
   maxNodes = 300,
-  maxDepth = 20
+  maxDepth = 25
 ): ExtractedElement {
   let totalNodes = 0;
 
@@ -361,18 +471,16 @@ export function extractElementTree(
     const classList = Array.from(el.classList || []);
     const { tailwindClasses, customClasses, isTailwindElement } = classifyClasses(classList);
 
-    // Attributes map
+    // Collect all HTML / SVG attributes
     const attributes: Record<string, string> = {};
     for (let i = 0; i < el.attributes.length; i++) {
       const attr = el.attributes[i];
-      if (attr.name.startsWith('data-elementa')) continue; // skip our own injected flags
+      if (attr.name.startsWith('data-elementa')) continue;
       attributes[attr.name] = attr.value;
     }
 
-    // Extract matched stylesheet rules and pseudos
     const { matchedRules, pseudoRules } = extractMatchedRules(el);
 
-    // Inline styles record
     const inlineStyles: Record<string, string> = {};
     if (el instanceof HTMLElement && el.style) {
       for (let i = 0; i < el.style.length; i++) {
@@ -381,7 +489,7 @@ export function extractElementTree(
       }
     }
 
-    // Direct text content (without recursive child node text)
+    // Direct text content
     let textContent = '';
     for (const childNode of Array.from(el.childNodes)) {
       if (childNode.nodeType === Node.TEXT_NODE && childNode.textContent?.trim()) {
@@ -390,7 +498,7 @@ export function extractElementTree(
     }
     textContent = textContent.trim();
 
-    // Assets scanning for this element
+    // Comprehensive asset scanning
     const assets: ExtractedAsset[] = scanElementAssets(el);
 
     const rect = el.getBoundingClientRect();
@@ -401,14 +509,14 @@ export function extractElementTree(
       height: Math.round(rect.height),
     };
 
-    // Calculate DOM Path for breadcrumb/debugging
     const domPath = getElementDOMPath(el);
 
-    // Recursively extract children up to limit
+    // Recursively extract children including Shadow DOM
     const children: ExtractedElement[] = [];
     if (depth < maxDepth && totalNodes < maxNodes) {
-      // Check for Shadow DOM root
       let childElements = Array.from(el.children);
+      
+      // Pierce Shadow DOM
       if (el.shadowRoot) {
         childElements = [...childElements, ...Array.from(el.shadowRoot.children)];
       }
@@ -473,10 +581,10 @@ function scanElementAssets(el: Element): ExtractedAsset[] {
   const assets: ExtractedAsset[] = [];
   const origin = window.location.origin;
 
-  // Check <img> src
+  // 1. <img> src and srcset
   if (el.tagName.toLowerCase() === 'img') {
     const src = el.getAttribute('src');
-    if (src) {
+    if (src && !src.startsWith('data:image/svg+xml;base64,PHN2Zy')) {
       const resolved = resolveUrl(src, origin);
       assets.push({
         id: `img-${Math.random().toString(36).substring(2, 9)}`,
@@ -488,24 +596,62 @@ function scanElementAssets(el: Element): ExtractedAsset[] {
         elementTag: 'img',
       });
     }
+
+    const srcset = el.getAttribute('srcset');
+    if (srcset) {
+      const firstSrc = srcset.split(',')[0].trim().split(/\s+/)[0];
+      if (firstSrc && firstSrc !== src) {
+        const resolved = resolveUrl(firstSrc, origin);
+        assets.push({
+          id: `srcset-${Math.random().toString(36).substring(2, 9)}`,
+          type: 'image',
+          originalUrl: firstSrc,
+          resolvedUrl: resolved,
+          filename: extractFilenameFromUrl(resolved, 'image-hd.png'),
+          isInlined: false,
+          elementTag: 'img',
+        });
+      }
+    }
   }
 
-  // Check <video> src / poster
-  if (el.tagName.toLowerCase() === 'video') {
+  // 2. <picture> <source>
+  if (el.tagName.toLowerCase() === 'source') {
+    const srcset = el.getAttribute('srcset') || el.getAttribute('src');
+    if (srcset) {
+      const firstSrc = srcset.split(',')[0].trim().split(/\s+/)[0];
+      const resolved = resolveUrl(firstSrc, origin);
+      assets.push({
+        id: `source-${Math.random().toString(36).substring(2, 9)}`,
+        type: 'image',
+        originalUrl: firstSrc,
+        resolvedUrl: resolved,
+        filename: extractFilenameFromUrl(resolved, 'source-image.png'),
+        isInlined: false,
+        elementTag: 'source',
+      });
+    }
+  }
+
+  // 3. <video> and <audio>
+  if (el.tagName.toLowerCase() === 'video' || el.tagName.toLowerCase() === 'audio') {
     const src = el.getAttribute('src');
     const poster = el.getAttribute('poster');
+    const isVideo = el.tagName.toLowerCase() === 'video';
+
     if (src) {
       const resolved = resolveUrl(src, origin);
       assets.push({
-        id: `video-${Math.random().toString(36).substring(2, 9)}`,
-        type: 'video',
+        id: `media-${Math.random().toString(36).substring(2, 9)}`,
+        type: isVideo ? 'video' : 'image',
         originalUrl: src,
         resolvedUrl: resolved,
-        filename: extractFilenameFromUrl(resolved, 'video.mp4'),
+        filename: extractFilenameFromUrl(resolved, isVideo ? 'video.mp4' : 'audio.mp3'),
         isInlined: false,
-        elementTag: 'video',
+        elementTag: el.tagName.toLowerCase(),
       });
     }
+
     if (poster) {
       const resolved = resolveUrl(poster, origin);
       assets.push({
@@ -520,7 +666,7 @@ function scanElementAssets(el: Element): ExtractedAsset[] {
     }
   }
 
-  // Check SVG elements
+  // 4. SVG Elements
   if (el.tagName.toLowerCase() === 'svg') {
     assets.push({
       id: `svg-${Math.random().toString(36).substring(2, 9)}`,
@@ -533,23 +679,30 @@ function scanElementAssets(el: Element): ExtractedAsset[] {
     });
   }
 
-  // Check background-image in inline style or computed style
+  // 5. CSS Background Images
   if (el instanceof HTMLElement) {
-    const bg = el.style.backgroundImage || window.getComputedStyle(el).backgroundImage;
-    if (bg && bg !== 'none') {
-      const urlMatch = bg.match(/url\(['"]?([^'"]+)['"]?\)/);
-      if (urlMatch && urlMatch[1] && !urlMatch[1].startsWith('data:')) {
-        const resolved = resolveUrl(urlMatch[1], origin);
-        assets.push({
-          id: `bg-${Math.random().toString(36).substring(2, 9)}`,
-          type: 'background',
-          originalUrl: urlMatch[1],
-          resolvedUrl: resolved,
-          filename: extractFilenameFromUrl(resolved, 'bg-image.png'),
-          isInlined: false,
-          elementTag: el.tagName.toLowerCase(),
-        });
+    try {
+      const bg = el.style.backgroundImage || window.getComputedStyle(el).backgroundImage;
+      if (bg && bg !== 'none') {
+        const matches = bg.matchAll(/url\(['"]?([^'"]+)['"]?\)/g);
+        for (const match of matches) {
+          const rawUrl = match[1];
+          if (rawUrl && !rawUrl.startsWith('data:')) {
+            const resolved = resolveUrl(rawUrl, origin);
+            assets.push({
+              id: `bg-${Math.random().toString(36).substring(2, 9)}`,
+              type: 'background',
+              originalUrl: rawUrl,
+              resolvedUrl: resolved,
+              filename: extractFilenameFromUrl(resolved, 'bg-image.png'),
+              isInlined: false,
+              elementTag: el.tagName.toLowerCase(),
+            });
+          }
+        }
       }
+    } catch {
+      // Ignore
     }
   }
 
