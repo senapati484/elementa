@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Elementa — DOM Component Extractor",
+  "name": "Elementa",
   "version": "1.0.0",
   "description": "Extract clean React components with inferred props, scoped HTML+CSS, and Tailwind JSX from any live website.",
   "icons": {
