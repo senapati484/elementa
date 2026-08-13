@@ -586,29 +586,52 @@ export function getElementDOMPath(el: Element): string {
   return parts.join(' > ') || el.tagName.toLowerCase();
 }
 
+function tryGetCanvasDataUri(imgEl: HTMLImageElement): string | null {
+  try {
+    if (imgEl.complete && imgEl.naturalWidth > 0 && imgEl.naturalHeight > 0) {
+      const canvas = document.createElement('canvas');
+      canvas.width = imgEl.naturalWidth;
+      canvas.height = imgEl.naturalHeight;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(imgEl, 0, 0);
+        return canvas.toDataURL('image/png');
+      }
+    }
+  } catch {
+    // Tainted canvas fallback
+  }
+  return null;
+}
+
 function scanElementAssets(el: Element): ExtractedAsset[] {
   const assets: ExtractedAsset[] = [];
-  const origin = window.location.origin;
+  const pageUrl = window.location.href;
   const tag = el.tagName.toLowerCase();
 
-  // 1. <img> and lazy-loaded image attributes
-  if (tag === 'img') {
+  // 1. <img>, lazy images, and avatar tags
+  if (tag === 'img' && el instanceof HTMLImageElement) {
     const rawSrc =
       el.getAttribute('src') ||
       el.getAttribute('data-src') ||
       el.getAttribute('data-original') ||
       el.getAttribute('data-url') ||
-      el.getAttribute('data-hires');
+      el.getAttribute('data-hires') ||
+      el.src;
 
     if (rawSrc) {
-      const resolved = resolveUrl(rawSrc, origin);
+      const resolved = resolveUrl(rawSrc, pageUrl);
+      const inMemoryDataUri = tryGetCanvasDataUri(el);
+      const isInlined = rawSrc.startsWith('data:') || !!inMemoryDataUri;
+
       assets.push({
         id: `img-${Math.random().toString(36).substring(2, 9)}`,
         type: 'image',
         originalUrl: rawSrc,
         resolvedUrl: resolved,
+        dataUri: inMemoryDataUri || (rawSrc.startsWith('data:') ? rawSrc : undefined),
         filename: extractFilenameFromUrl(resolved, 'image.png'),
-        isInlined: rawSrc.startsWith('data:'),
+        isInlined,
         elementTag: 'img',
       });
     }
@@ -618,7 +641,7 @@ function scanElementAssets(el: Element): ExtractedAsset[] {
       const items = srcset.split(',').map((s) => s.trim().split(/\s+/)[0]).filter(Boolean);
       for (const item of items) {
         if (item && item !== rawSrc) {
-          const resolved = resolveUrl(item, origin);
+          const resolved = resolveUrl(item, pageUrl);
           assets.push({
             id: `srcset-${Math.random().toString(36).substring(2, 9)}`,
             type: 'image',
@@ -638,7 +661,7 @@ function scanElementAssets(el: Element): ExtractedAsset[] {
     const src = el.getAttribute('srcset') || el.getAttribute('src') || el.getAttribute('data-src');
     if (src) {
       const firstSrc = src.split(',')[0].trim().split(/\s+/)[0];
-      const resolved = resolveUrl(firstSrc, origin);
+      const resolved = resolveUrl(firstSrc, pageUrl);
       assets.push({
         id: `source-${Math.random().toString(36).substring(2, 9)}`,
         type: 'image',
@@ -651,13 +674,33 @@ function scanElementAssets(el: Element): ExtractedAsset[] {
     }
   }
 
-  // 3. Inline <svg> Elements - Convert to full data URI
+  // 3. Inline <svg> Elements - Self-contained vector extraction
   if (tag === 'svg') {
     try {
-      const svgOuter = el.outerHTML;
+      // Clone and resolve any <use xlink:href="#..."> symbols from document
+      const svgClone = el.cloneNode(true) as SVGElement;
+      const uses = svgClone.querySelectorAll('use');
+      uses.forEach((useEl) => {
+        const href = useEl.getAttribute('href') || useEl.getAttribute('xlink:href');
+        if (href && href.startsWith('#')) {
+          const targetId = href.slice(1);
+          const referencedSymbol = document.getElementById(targetId);
+          if (referencedSymbol) {
+            const innerElements = referencedSymbol.cloneNode(true) as Element;
+            useEl.replaceWith(...Array.from(innerElements.children));
+          }
+        }
+      });
+
+      // Ensure xmlns attribute exists
+      if (!svgClone.getAttribute('xmlns')) {
+        svgClone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+      }
+
+      const svgOuter = svgClone.outerHTML;
       const cleanSvg = svgOuter.replace(/data-elementa-[a-z]+="[^"]*"/g, '');
       const svgDataUri = `data:image/svg+xml;utf8,${encodeURIComponent(cleanSvg)}`;
-      
+
       const ariaLabel = el.getAttribute('aria-label') || el.getAttribute('aria-labelledby');
       const classStr = getElementClassString(el);
       const iconName = ariaLabel
@@ -681,11 +724,11 @@ function scanElementAssets(el: Element): ExtractedAsset[] {
     }
   }
 
-  // 4. SVG <image> and <use> tags
+  // 4. SVG <image> tags
   if (tag === 'image') {
     const href = el.getAttribute('href') || el.getAttribute('xlink:href');
     if (href) {
-      const resolved = resolveUrl(href, origin);
+      const resolved = resolveUrl(href, pageUrl);
       assets.push({
         id: `svgimg-${Math.random().toString(36).substring(2, 9)}`,
         type: 'image',
@@ -705,7 +748,7 @@ function scanElementAssets(el: Element): ExtractedAsset[] {
     const isVideo = tag === 'video';
 
     if (src) {
-      const resolved = resolveUrl(src, origin);
+      const resolved = resolveUrl(src, pageUrl);
       assets.push({
         id: `media-${Math.random().toString(36).substring(2, 9)}`,
         type: isVideo ? 'video' : 'image',
@@ -718,7 +761,7 @@ function scanElementAssets(el: Element): ExtractedAsset[] {
     }
 
     if (poster) {
-      const resolved = resolveUrl(poster, origin);
+      const resolved = resolveUrl(poster, pageUrl);
       assets.push({
         id: `poster-${Math.random().toString(36).substring(2, 9)}`,
         type: 'image',
@@ -731,37 +774,67 @@ function scanElementAssets(el: Element): ExtractedAsset[] {
     }
   }
 
-  // 6. CSS background-image and mask-image
+  // 6. <canvas> snapshot
+  if (tag === 'canvas' && el instanceof HTMLCanvasElement) {
+    try {
+      const dataUri = el.toDataURL('image/png');
+      assets.push({
+        id: `canvas-${Math.random().toString(36).substring(2, 9)}`,
+        type: 'image',
+        originalUrl: dataUri,
+        resolvedUrl: dataUri,
+        dataUri,
+        filename: 'canvas-drawing.png',
+        isInlined: true,
+        elementTag: 'canvas',
+      });
+    } catch {
+      // Ignore
+    }
+  }
+
+  // 7. CSS background-image, mask-image, content on element and pseudo-elements
   if (el instanceof HTMLElement) {
     try {
-      const style = el.style;
-      const computed = window.getComputedStyle(el);
-      const bg = style.backgroundImage || computed.backgroundImage;
-      const mask = style.maskImage || computed.maskImage || (style as any).webkitMaskImage || (computed as any).webkitMaskImage;
+      const checkStyleUrls = (computed: CSSStyleDeclaration) => {
+        const bg = computed.backgroundImage;
+        const mask = computed.maskImage || (computed as any).webkitMaskImage;
+        const content = computed.content;
 
-      const checkUrlString = (str: string, assetType: 'background' | 'image') => {
-        if (str && str !== 'none') {
-          const matches = str.matchAll(/url\(['"]?([^'"]+)['"]?\)/g);
-          for (const match of matches) {
-            const rawUrl = match[1];
-            if (rawUrl && !rawUrl.startsWith('data:')) {
-              const resolved = resolveUrl(rawUrl, origin);
-              assets.push({
-                id: `bg-${Math.random().toString(36).substring(2, 9)}`,
-                type: assetType,
-                originalUrl: rawUrl,
-                resolvedUrl: resolved,
-                filename: extractFilenameFromUrl(resolved, 'bg-image.png'),
-                isInlined: false,
-                elementTag: tag,
-              });
+        const checkStr = (str: string, assetType: 'background' | 'image') => {
+          if (str && str !== 'none') {
+            const matches = str.matchAll(/url\(['"]?([^'"]+)['"]?\)/g);
+            for (const match of matches) {
+              const rawUrl = match[1];
+              if (rawUrl && !rawUrl.startsWith('data:')) {
+                const resolved = resolveUrl(rawUrl, pageUrl);
+                assets.push({
+                  id: `bg-${Math.random().toString(36).substring(2, 9)}`,
+                  type: assetType,
+                  originalUrl: rawUrl,
+                  resolvedUrl: resolved,
+                  filename: extractFilenameFromUrl(resolved, 'bg-image.png'),
+                  isInlined: false,
+                  elementTag: tag,
+                });
+              }
             }
           }
-        }
+        };
+
+        checkStr(bg, 'background');
+        checkStr(mask, 'image');
+        checkStr(content, 'image');
       };
 
-      checkUrlString(bg, 'background');
-      checkUrlString(mask, 'image');
+      const computed = window.getComputedStyle(el);
+      checkStyleUrls(computed);
+
+      const before = window.getComputedStyle(el, '::before');
+      if (before) checkStyleUrls(before);
+
+      const after = window.getComputedStyle(el, '::after');
+      if (after) checkStyleUrls(after);
     } catch {
       // Ignore
     }

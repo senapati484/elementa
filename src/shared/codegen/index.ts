@@ -29,8 +29,9 @@ export function runFullExtraction(
   function gatherAssets(el: ExtractedElement) {
     if (el.assets) {
       for (const a of el.assets) {
-        if (!assetMap.has(a.resolvedUrl)) {
-          assetMap.set(a.resolvedUrl, a);
+        const key = a.id || a.resolvedUrl || a.originalUrl;
+        if (!assetMap.has(key)) {
+          assetMap.set(key, a);
         }
       }
     }
