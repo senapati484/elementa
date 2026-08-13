@@ -7,7 +7,7 @@ export interface StyleProperty {
 export interface StyleRule {
   selector: string;
   properties: StyleProperty[];
-  specificity: number; // Specificity score (e.g. 1000 for inline, 100 for ID, 10 for class/attr, 1 for tag)
+  specificity: number;
   sourceSheet?: string;
 }
 
@@ -55,7 +55,7 @@ export interface ExtractedAsset {
 export interface InferredProp {
   name: string;
   type: 'string' | 'image' | 'link' | 'boolean' | 'number';
-  path: string; // e.g., "children[0].textContent", "attributes.src", "attributes.href"
+  path: string;
   description?: string;
   sampleValues: (string | boolean | number)[];
 }
@@ -106,12 +106,15 @@ export interface ComponentExtractionResult {
     tailwindJsx: {
       code: string;
     };
+    vueSfc?: {
+      code: string;
+    };
   };
   warnings: string[];
 }
 
 export interface ExportOptions {
-  format: 'react-tsx' | 'html-css' | 'tailwind-jsx';
+  format: 'react-tsx' | 'html-css' | 'tailwind-jsx' | 'vue-sfc';
   scopeClassPrefix: string;
   inlineAssets: boolean;
   assetThresholdKb: number;

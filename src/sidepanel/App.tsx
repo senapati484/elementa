@@ -8,6 +8,7 @@ import {
 import { ExtensionMessage } from '../shared/messages';
 import { CodeViewer } from './CodeViewer';
 import { AssetList } from './AssetList';
+import { LivePreview } from './LivePreview';
 import { SettingsModal } from './SettingsModal';
 import { exportComponentToZip } from '../shared/assets/zip-exporter';
 import { 
@@ -28,7 +29,9 @@ import {
   Zap,
   AlertTriangle,
   ExternalLink,
-  Globe
+  Globe,
+  Eye,
+  LayoutTemplate
 } from 'lucide-react';
 
 const DEFAULT_OPTIONS: ExportOptions = {
@@ -69,7 +72,7 @@ export default function App() {
   const [hasParent, setHasParent] = useState(false);
   const [hasChildren, setHasChildren] = useState(false);
 
-  const [activeTab, setActiveTab] = useState<'react' | 'html-css' | 'tailwind' | 'assets'>('react');
+  const [activeTab, setActiveTab] = useState<'preview' | 'react' | 'vue' | 'html-css' | 'tailwind' | 'assets'>('preview');
   const [extractionResult, setExtractionResult] = useState<ComponentExtractionResult | null>(null);
   const [options, setOptions] = useState<ExportOptions>(DEFAULT_OPTIONS);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -82,7 +85,6 @@ export default function App() {
     setTimeout(() => setToastMessage(null), 3000);
   };
 
-  // Check and update active tab status
   const checkActiveTab = useCallback(async () => {
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -135,7 +137,6 @@ export default function App() {
     }
   }, []);
 
-  // Message listener from content script
   useEffect(() => {
     const handleMessage = (message: ExtensionMessage) => {
       if (!message || !message.type) return;
@@ -251,7 +252,9 @@ export default function App() {
     let codeToCopy = '';
     if (activeTab === 'react') {
       codeToCopy = extractionResult.generatedCode.reactTsx.code;
-    } else if (activeTab === 'html-css') {
+    } else if (activeTab === 'vue') {
+      codeToCopy = extractionResult.generatedCode.vueSfc?.code || '';
+    } else if (activeTab === 'html-css' || activeTab === 'preview') {
       codeToCopy = extractionResult.generatedCode.htmlCss.fullDoc;
     } else if (activeTab === 'tailwind') {
       codeToCopy = extractionResult.generatedCode.tailwindJsx.code;
@@ -493,24 +496,48 @@ export default function App() {
           )}
         </section>
 
-        {/* Code Generation Tabs */}
-        <div className="flex items-center justify-between border-b border-dark-border pb-1">
+        {/* Code Generation & Preview Tabs */}
+        <div className="flex items-center justify-between border-b border-dark-border pb-1 overflow-x-auto scrollbar-none">
           <div className="flex items-center gap-1">
             <button
+              onClick={() => setActiveTab('preview')}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition ${
+                activeTab === 'preview'
+                  ? 'bg-emerald-600/30 text-emerald-300 border border-emerald-500/40'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-dark-surface'
+              }`}
+            >
+              <Eye size={13} />
+              <span>Preview</span>
+            </button>
+
+            <button
               onClick={() => setActiveTab('react')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition ${
                 activeTab === 'react'
                   ? 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/40'
                   : 'text-slate-400 hover:text-slate-200 hover:bg-dark-surface'
               }`}
             >
               <Code size={13} />
-              <span>React (TSX)</span>
+              <span>React</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('vue')}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition ${
+                activeTab === 'vue'
+                  ? 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/40'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-dark-surface'
+              }`}
+            >
+              <LayoutTemplate size={13} />
+              <span>Vue</span>
             </button>
 
             <button
               onClick={() => setActiveTab('html-css')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition ${
                 activeTab === 'html-css'
                   ? 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/40'
                   : 'text-slate-400 hover:text-slate-200 hover:bg-dark-surface'
@@ -522,7 +549,7 @@ export default function App() {
 
             <button
               onClick={() => setActiveTab('tailwind')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition ${
                 activeTab === 'tailwind'
                   ? 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/40'
                   : 'text-slate-400 hover:text-slate-200 hover:bg-dark-surface'
@@ -534,7 +561,7 @@ export default function App() {
 
             <button
               onClick={() => setActiveTab('assets')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition ${
                 activeTab === 'assets'
                   ? 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/40'
                   : 'text-slate-400 hover:text-slate-200 hover:bg-dark-surface'
@@ -550,14 +577,14 @@ export default function App() {
             <button
               onClick={() => triggerExtraction(options)}
               title="Re-extract component"
-              className="p-1.5 rounded text-slate-400 hover:text-slate-200 hover:bg-dark-surface transition"
+              className="p-1 rounded text-slate-400 hover:text-slate-200 hover:bg-dark-surface transition flex-shrink-0"
             >
               <RefreshCw size={13} />
             </button>
           )}
         </div>
 
-        {/* Code / Content Viewer Area */}
+        {/* Code / Preview / Assets Area */}
         <div className="flex-1 min-h-0">
           {!extractionResult ? (
             <div className="flex flex-col items-center justify-center h-full text-center p-6 bg-dark-surface border border-dark-border rounded-lg text-slate-500">
@@ -569,11 +596,19 @@ export default function App() {
                   : 'Click "Inspect" above and click any element on the page to extract it.'}
               </p>
             </div>
+          ) : activeTab === 'preview' ? (
+            <LivePreview htmlDoc={extractionResult.generatedCode.htmlCss.fullDoc} />
           ) : activeTab === 'react' ? (
             <CodeViewer
               code={extractionResult.generatedCode.reactTsx.code}
               language="tsx"
               filename={`${options.componentName || 'Component'}.tsx`}
+            />
+          ) : activeTab === 'vue' ? (
+            <CodeViewer
+              code={extractionResult.generatedCode.vueSfc?.code || ''}
+              language="html"
+              filename={`${options.componentName || 'Component'}.vue`}
             />
           ) : activeTab === 'html-css' ? (
             <CodeViewer

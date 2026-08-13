@@ -3,6 +3,7 @@ import { inferPropsFromInstances } from './prop-inference';
 import { generateReactComponent } from './react-gen';
 import { generateHtmlAndCss } from './html-css';
 import { generateTailwindJsx } from './tailwind-gen';
+import { generateVueComponent } from './vue-gen';
 import { normalizeClassName } from '../../content/similar-patterns';
 import { ExtractedElement } from '../types';
 
@@ -140,5 +141,32 @@ describe('codegen & pattern tests', () => {
     const result = generateTailwindJsx(rootEl, 'DarkCard');
     expect(result.code).toContain('export const DarkCard: React.FC = () => {');
     expect(result.code).toContain('className="bg-slate-900 text-white rounded-xl p-6"');
+  });
+
+  it('generates clean Vue 3 SFC component', () => {
+    const rootEl: ExtractedElement = {
+      id: '',
+      tagName: 'div',
+      classList: ['product-card'],
+      attributes: {},
+      rect: { top: 0, left: 0, width: 250, height: 180 },
+      matchedRules: [],
+      pseudoRules: [],
+      inlineStyles: {},
+      isTailwind: false,
+      tailwindClasses: [],
+      customClasses: ['product-card'],
+      textContent: 'Vue Card',
+      outerHTML: '<div class="product-card">Vue Card</div>',
+      children: [],
+      depth: 0,
+      domPath: 'div.product-card',
+      assets: [],
+    };
+
+    const result = generateVueComponent(rootEl, [], 'ProductCard', '.product-card { padding: 16px; }');
+    expect(result.code).toContain('<script setup lang="ts">');
+    expect(result.code).toContain('<template>');
+    expect(result.code).toContain('<style scoped>');
   });
 });

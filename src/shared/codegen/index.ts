@@ -2,6 +2,7 @@ import { ExtractedElement, ComponentExtractionResult, ExportOptions, ExtractedAs
 import { generateHtmlAndCss } from './html-css';
 import { generateReactComponent } from './react-gen';
 import { generateTailwindJsx } from './tailwind-gen';
+import { generateVueComponent } from './vue-gen';
 
 export function runFullExtraction(
   rootElement: ExtractedElement,
@@ -9,7 +10,7 @@ export function runFullExtraction(
   options: Partial<ExportOptions> = {}
 ): ComponentExtractionResult {
   const componentName = options.componentName || 'ExtractedComponent';
-  const scopeClassPrefix = options.scopeClassPrefix || 'elementa-scope';
+  const scopeClassPrefix = options.scopeClassPrefix || 'elementa-comp';
 
   // 1. Generate HTML + Scoped CSS
   const htmlCss = generateHtmlAndCss(rootElement, scopeClassPrefix);
@@ -20,7 +21,10 @@ export function runFullExtraction(
   // 3. Generate Tailwind JSX
   const tailwindResult = generateTailwindJsx(rootElement, componentName);
 
-  // 4. Aggregate all assets across tree & repeated instances
+  // 4. Generate Vue 3 SFC
+  const vueResult = generateVueComponent(rootElement, repeatedElements, componentName, htmlCss.css);
+
+  // 5. Aggregate all assets across tree & repeated instances
   const assetMap = new Map<string, ExtractedAsset>();
   function gatherAssets(el: ExtractedElement) {
     if (el.assets) {
@@ -62,6 +66,9 @@ export function runFullExtraction(
       },
       tailwindJsx: {
         code: tailwindResult.code,
+      },
+      vueSfc: {
+        code: vueResult.code,
       },
     },
     warnings,
