@@ -1,5 +1,20 @@
 // Background Service Worker for Elementa Chrome Extension
 
+function isInspectableUrl(url?: string): boolean {
+  if (!url) return false;
+  const lower = url.toLowerCase();
+  return (
+    !lower.startsWith('chrome://') &&
+    !lower.startsWith('chrome-extension://') &&
+    !lower.startsWith('devtools://') &&
+    !lower.startsWith('edge://') &&
+    !lower.startsWith('about:') &&
+    !lower.startsWith('view-source:') &&
+    !lower.includes('chromewebstore.google.com') &&
+    !lower.includes('chrome.google.com/webstore')
+  );
+}
+
 // Configure side panel behavior: open side panel on extension icon click
 chrome.runtime.onInstalled.addListener(() => {
   console.log('[Elementa] Background service worker installed');
@@ -21,8 +36,7 @@ chrome.action.onClicked.addListener(async (tab) => {
 
 // Message router between Side Panel and Content Script
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  // Check message validity
-  if (!message || !message.type) return;
+  if (!message || !message.type) return false;
 
   if (message.type === 'PING') {
     sendResponse({ type: 'PONG', payload: { from: 'background' } });
@@ -42,7 +56,16 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       try {
         const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
         if (!activeTab || !activeTab.id) {
-          sendResponse({ error: 'No active tab found' });
+          sendResponse({ error: 'NO_ACTIVE_TAB', message: 'No active tab found' });
+          return;
+        }
+
+        if (!isInspectableUrl(activeTab.url)) {
+          sendResponse({
+            error: 'RESTRICTED_PAGE',
+            message:
+              'Chrome blocks extensions on internal browser pages (chrome://) and the Chrome Web Store. Please open any standard website (e.g. github.com, apple.com, google.com).',
+          });
           return;
         }
 
@@ -51,23 +74,40 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           const response = await chrome.tabs.sendMessage(activeTab.id, message);
           sendResponse(response);
         } catch (err: any) {
-          // If content script is not yet injected on this page, inject it dynamically
-          console.log('[Elementa] Injecting content script into tab:', activeTab.id);
-          await chrome.scripting.executeScript({
-            target: { tabId: activeTab.id },
-            files: ['src/content/index.ts'],
-          });
+          // If content script was not injected on an existing tab before extension was installed, inject it
+          console.log('[Elementa] Injecting content script into active tab:', activeTab.id);
+          const manifest = chrome.runtime.getManifest();
+          const scriptFiles = manifest.content_scripts?.[0]?.js || [];
 
-          // Retry sending message after brief yield
-          const retryResponse = await chrome.tabs.sendMessage(activeTab.id, message);
-          sendResponse(retryResponse);
+          if (scriptFiles.length > 0) {
+            try {
+              await chrome.scripting.executeScript({
+                target: { tabId: activeTab.id },
+                files: scriptFiles,
+              });
+
+              // Give script a moment to initialize and retry
+              const retryResponse = await chrome.tabs.sendMessage(activeTab.id, message);
+              sendResponse(retryResponse);
+              return;
+            } catch (injectErr: any) {
+              console.warn('[Elementa] Script injection failed:', injectErr);
+              sendResponse({
+                error: 'INJECTION_FAILED',
+                message: 'Could not inject inspector into tab. Please refresh the page.',
+              });
+              return;
+            }
+          }
+
+          sendResponse({ error: err?.message || 'Failed to message content script' });
         }
       } catch (err: any) {
         console.error('[Elementa] Error routing message to tab:', err);
         sendResponse({ error: err?.message || 'Failed to message content script' });
       }
     })();
-    return true; // Keep message channel open for async response
+    return true; // Keep channel open for async response
   }
 
   return false;

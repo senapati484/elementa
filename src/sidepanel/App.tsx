@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   ElementSummary, 
   BreadcrumbItem, 
@@ -25,7 +25,10 @@ import {
   Sparkles, 
   Image, 
   RefreshCw,
-  Zap
+  Zap,
+  AlertTriangle,
+  ExternalLink,
+  Globe
 } from 'lucide-react';
 
 const DEFAULT_OPTIONS: ExportOptions = {
@@ -39,7 +42,24 @@ const DEFAULT_OPTIONS: ExportOptions = {
   maxSubtreeDepth: 15,
 };
 
+function isInspectableUrl(url?: string): boolean {
+  if (!url) return false;
+  const lower = url.toLowerCase();
+  return (
+    !lower.startsWith('chrome://') &&
+    !lower.startsWith('chrome-extension://') &&
+    !lower.startsWith('devtools://') &&
+    !lower.startsWith('edge://') &&
+    !lower.startsWith('about:') &&
+    !lower.startsWith('view-source:') &&
+    !lower.includes('chromewebstore.google.com') &&
+    !lower.includes('chrome.google.com/webstore')
+  );
+}
+
 export default function App() {
+  const [activeTabInfo, setActiveTabInfo] = useState<{ id?: number; url?: string; title?: string }>({});
+  const [isRestrictedPage, setIsRestrictedPage] = useState(false);
   const [isInspecting, setIsInspecting] = useState(false);
   const [selectedSummary, setSelectedSummary] = useState<ElementSummary | null>(null);
   const [hoverSummary, setHoverSummary] = useState<ElementSummary | null>(null);
@@ -57,11 +77,63 @@ export default function App() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  // Show transient toast
   const showToast = (msg: string) => {
     setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 2500);
+    setTimeout(() => setToastMessage(null), 3000);
   };
+
+  // Check and update active tab status
+  const checkActiveTab = useCallback(async () => {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tab) {
+        setActiveTabInfo({ id: tab.id, url: tab.url, title: tab.title });
+        const restricted = !isInspectableUrl(tab.url);
+        setIsRestrictedPage(restricted);
+        if (restricted && isInspecting) {
+          setIsInspecting(false);
+        }
+      }
+    } catch (e) {
+      console.warn('Error checking active tab:', e);
+    }
+  }, [isInspecting]);
+
+  useEffect(() => {
+    checkActiveTab();
+
+    const handleTabActivated = () => {
+      checkActiveTab();
+    };
+
+    const handleTabUpdated = (_tabId: number, changeInfo: chrome.tabs.TabChangeInfo) => {
+      if (changeInfo.status === 'complete' || changeInfo.url) {
+        checkActiveTab();
+      }
+    };
+
+    chrome.tabs.onActivated.addListener(handleTabActivated);
+    chrome.tabs.onUpdated.addListener(handleTabUpdated);
+
+    return () => {
+      chrome.tabs.onActivated.removeListener(handleTabActivated);
+      chrome.tabs.onUpdated.removeListener(handleTabUpdated);
+    };
+  }, [checkActiveTab]);
+
+  const triggerExtraction = useCallback(async (currentOpts: ExportOptions) => {
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: 'EXTRACT_COMPONENT',
+        payload: { options: currentOpts },
+      });
+      if (response && response.result) {
+        setExtractionResult(response.result);
+      }
+    } catch (e) {
+      console.warn('Extraction request error:', e);
+    }
+  }, []);
 
   // Message listener from content script
   useEffect(() => {
@@ -81,7 +153,6 @@ export default function App() {
           setSimilarCount(message.payload.similarCount || 0);
           setHasParent(message.payload.hasParent);
           setHasChildren(message.payload.hasChildren);
-          // Automatically trigger component extraction
           triggerExtraction(options);
           break;
         }
@@ -106,33 +177,31 @@ export default function App() {
     return () => {
       chrome.runtime.onMessage.removeListener(handleMessage);
     };
-  }, [options]);
+  }, [options, triggerExtraction]);
 
   const toggleInspect = async () => {
+    if (isRestrictedPage) {
+      showToast('Cannot inspect internal chrome:// pages. Open any regular website first!');
+      return;
+    }
+
     const nextState = !isInspecting;
     setIsInspecting(nextState);
 
     try {
-      await chrome.runtime.sendMessage({
+      const resp = await chrome.runtime.sendMessage({
         type: nextState ? 'START_INSPECT' : 'STOP_INSPECT',
         payload: { options },
       });
-    } catch (e) {
-      console.warn('Could not toggle inspector directly:', e);
-    }
-  };
 
-  const triggerExtraction = async (currentOpts: ExportOptions) => {
-    try {
-      const response = await chrome.runtime.sendMessage({
-        type: 'EXTRACT_COMPONENT',
-        payload: { options: currentOpts },
-      });
-      if (response && response.result) {
-        setExtractionResult(response.result);
+      if (resp && resp.error) {
+        setIsInspecting(false);
+        showToast(resp.message || 'Inspection failed');
       }
-    } catch (e) {
-      console.warn('Extraction request error:', e);
+    } catch (e: any) {
+      console.warn('Could not toggle inspector:', e);
+      setIsInspecting(false);
+      showToast('Please refresh the active webpage and try again.');
     }
   };
 
@@ -223,8 +292,9 @@ export default function App() {
     }
   };
 
-  // Current displayed summary (selected has priority over hover)
-  
+  const openSamplePage = (url: string) => {
+    chrome.tabs.create({ url });
+  };
 
   return (
     <div className="flex flex-col h-screen w-full bg-dark-bg text-slate-100 font-sans select-none overflow-hidden">
@@ -260,10 +330,13 @@ export default function App() {
           {/* Inspect Mode Toggle Button */}
           <button
             onClick={toggleInspect}
+            disabled={isRestrictedPage}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition shadow-sm ${
-              isInspecting
+              isRestrictedPage
+                ? 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700/50'
+                : isInspecting
                 ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-glow-teal ring-2 ring-emerald-400/40'
-                : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-glow'
+                : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-glow active:scale-95'
             }`}
           >
             <MousePointer size={13} className={isInspecting ? 'animate-pulse text-emerald-200' : ''} />
@@ -271,6 +344,40 @@ export default function App() {
           </button>
         </div>
       </header>
+
+      {/* Restricted Page Notice Banner */}
+      {isRestrictedPage && (
+        <div className="mx-3 mt-3 p-3 rounded-lg bg-amber-950/40 border border-amber-500/40 text-amber-200 text-xs flex flex-col gap-2">
+          <div className="flex items-start gap-2">
+            <AlertTriangle size={16} className="text-amber-400 flex-shrink-0 mt-0.5" />
+            <div>
+              <div className="font-semibold text-amber-300">Internal Browser Page Detected</div>
+              <div className="text-[11px] text-amber-200/80 mt-0.5 leading-relaxed">
+                Chrome security blocks all extensions from running on <code className="bg-black/40 px-1 py-0.5 rounded text-amber-300">chrome://</code> pages and the Chrome Web Store.
+              </div>
+            </div>
+          </div>
+          <div className="pt-2 border-t border-amber-500/20 flex items-center justify-between">
+            <span className="text-[11px] text-amber-300 font-medium">Open any webpage to test:</span>
+            <div className="flex gap-1.5">
+              <button
+                onClick={() => openSamplePage('https://github.com')}
+                className="px-2 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 rounded text-[11px] font-medium transition flex items-center gap-1"
+              >
+                <span>GitHub</span>
+                <ExternalLink size={10} />
+              </button>
+              <button
+                onClick={() => openSamplePage('https://apple.com')}
+                className="px-2 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 rounded text-[11px] font-medium transition flex items-center gap-1"
+              >
+                <span>Apple</span>
+                <ExternalLink size={10} />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Main Container */}
       <div className="flex-1 flex flex-col min-h-0 p-3 gap-2.5 overflow-hidden">
@@ -281,7 +388,9 @@ export default function App() {
             <div className="flex items-center gap-2 min-w-0">
               <div
                 className={`w-2 h-2 rounded-full ${
-                  selectedSummary
+                  isRestrictedPage
+                    ? 'bg-amber-500'
+                    : selectedSummary
                     ? 'bg-emerald-400 ring-2 ring-emerald-400/30'
                     : isInspecting
                     ? 'bg-indigo-400 animate-ping'
@@ -289,7 +398,12 @@ export default function App() {
                 }`}
               />
               <div className="text-xs truncate">
-                {selectedSummary ? (
+                {isRestrictedPage ? (
+                  <span className="text-amber-400/90 truncate flex items-center gap-1">
+                    <Globe size={11} />
+                    {activeTabInfo.url || 'Internal Chrome Page'}
+                  </span>
+                ) : selectedSummary ? (
                   <span className="font-semibold text-emerald-300">
                     Selected: &lt;{selectedSummary.tagName}&gt;
                     {selectedSummary.id ? `#${selectedSummary.id}` : ''}
@@ -450,7 +564,9 @@ export default function App() {
               <Layers size={36} className="mb-3 text-slate-600 opacity-60" />
               <p className="text-sm font-semibold text-slate-400">Ready to Extract</p>
               <p className="text-xs text-slate-600 mt-1 max-w-[240px]">
-                Click <span className="text-indigo-400 font-semibold">&quot;Inspect&quot;</span> and select any element on the page to view clean generated code.
+                {isRestrictedPage
+                  ? 'Navigate to any regular website to begin inspecting elements.'
+                  : 'Click "Inspect" above and click any element on the page to extract it.'}
               </p>
             </div>
           ) : activeTab === 'react' ? (
@@ -510,7 +626,7 @@ export default function App() {
 
       {/* Toast Notification */}
       {toastMessage && (
-        <div className="fixed bottom-14 left-1/2 -translate-x-1/2 z-50 px-3.5 py-1.5 bg-slate-900/95 border border-indigo-500/40 text-indigo-200 text-xs font-medium rounded-full shadow-2xl backdrop-blur-md animate-bounce">
+        <div className="fixed bottom-14 left-1/2 -translate-x-1/2 z-50 px-3.5 py-1.5 bg-slate-900/95 border border-indigo-500/40 text-indigo-200 text-xs font-medium rounded-full shadow-2xl backdrop-blur-md animate-bounce text-center max-w-[85%] truncate">
           {toastMessage}
         </div>
       )}
