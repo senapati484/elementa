@@ -16,6 +16,7 @@ export type MessageType =
   | 'DESELECT_ELEMENT'
   | 'EXTRACT_COMPONENT'
   | 'EXTRACTION_RESULT'
+  | 'FETCH_ASSET_BLOB'
   | 'TOGGLE_SIMILAR_HIGHLIGHT'
   | 'INSPECTION_STATUS_CHANGED'
   | 'ERROR_OCCURRED';
@@ -43,6 +44,7 @@ export type ElementSelectedMessage = BaseMessage<'ELEMENT_SELECTED', {
   similarCount: number;
   hasParent: boolean;
   hasChildren: boolean;
+  extractionResult?: ComponentExtractionResult | null;
 }>;
 
 export type NavigateDomMessage = BaseMessage<'NAVIGATE_DOM', {
@@ -58,6 +60,10 @@ export type ExtractComponentMessage = BaseMessage<'EXTRACT_COMPONENT', {
 
 export type ExtractionResultMessage = BaseMessage<'EXTRACTION_RESULT', {
   result: ComponentExtractionResult;
+}>;
+
+export type FetchAssetBlobMessage = BaseMessage<'FETCH_ASSET_BLOB', {
+  url: string;
 }>;
 
 export type ToggleSimilarHighlightMessage = BaseMessage<'TOGGLE_SIMILAR_HIGHLIGHT', {
@@ -85,6 +91,7 @@ export type ExtensionMessage =
   | DeselectElementMessage
   | ExtractComponentMessage
   | ExtractionResultMessage
+  | FetchAssetBlobMessage
   | ToggleSimilarHighlightMessage
   | InspectionStatusChangedMessage
   | ErrorOccurredMessage;

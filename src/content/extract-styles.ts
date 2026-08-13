@@ -1,5 +1,19 @@
 import { StyleProperty, StyleRule, PseudoRule, ExtractedElement, ExtractedAsset } from '../shared/types';
 
+// Safe class string extractor supporting SVGAnimatedString, HTML, and XML elements
+export function getElementClassString(el: Element): string {
+  if (!el) return '';
+  if (typeof el.className === 'string') return el.className;
+  if (el.className && typeof (el.className as any).baseVal === 'string') return (el.className as any).baseVal;
+  return el.getAttribute('class') || '';
+}
+
+export function getElementClassList(el: Element): string[] {
+  const str = getElementClassString(el);
+  if (!str) return [];
+  return str.trim().split(/\s+/).filter(Boolean);
+}
+
 // Tailwind utility heuristic detector
 const TAILWIND_UTILITY_REGEX = /^(?:(?:sm|md|lg|xl|2xl|dark|hover|focus|focus-visible|focus-within|active|disabled|visited|first|last|odd|even|group-hover|peer-hover|group-focus):)*(?:(?:bg|text|border|ring|outline|divide|from|to|via|fill|stroke|shadow|rounded|m|mx|my|mt|mb|ml|mr|p|px|py|pt|pb|pl|pr|w|h|min-w|max-w|min-h|max-h|gap|space-x|space-y|inset|top|bottom|left|right|z|opacity|flex|grid|col-span|row-span|grid-cols|grid-rows|items|justify|content|self|order|basis|grow|shrink|font|leading|tracking|line-clamp|aspect|cursor|pointer-events|select|overflow|align|transform|transition|duration|delay|ease|animate|scale|rotate|translate|skew|blur|backdrop-blur|brightness|contrast|drop-shadow)-(?:\[[^\]]+\]|[\w\-\.\/]+)|(?:flex|inline-flex|grid|inline-grid|block|inline-block|inline|hidden|table|isolate|absolute|relative|fixed|sticky|static|visible|invisible|truncate|uppercase|lowercase|capitalize|italic|not-italic|underline|line-through|no-underline|antialiased|subpixel-antialiased|sr-only|not-sr-only))$/;
 
@@ -89,7 +103,6 @@ export function parsePseudoSelector(selector: string): {
   return { baseSelector: selector, pseudo: null };
 }
 
-// Essential CSS properties to capture from computed style if rules don't cover them
 const ESSENTIAL_COMPUTED_PROPS = [
   'display',
   'flex-direction',
@@ -132,7 +145,6 @@ const ESSENTIAL_COMPUTED_PROPS = [
   'z-index',
 ];
 
-// Extract matched rules across all loaded stylesheets + Shadow DOM roots + adoptedStyleSheets
 export function extractMatchedRules(
   el: Element,
   doc: Document = document
@@ -145,10 +157,8 @@ export function extractMatchedRules(
   const pseudoRules: PseudoRule[] = [];
   let skippedSheetsCount = 0;
 
-  // Gather all style sheets (Document + Shadow Roots + Adopted)
   const allSheets: CSSStyleSheet[] = [];
 
-  // 1. Document StyleSheets
   try {
     if (doc.styleSheets) {
       allSheets.push(...Array.from(doc.styleSheets));
@@ -157,7 +167,6 @@ export function extractMatchedRules(
     skippedSheetsCount++;
   }
 
-  // 2. Document Adopted StyleSheets
   try {
     if ((doc as any).adoptedStyleSheets) {
       allSheets.push(...Array.from((doc as any).adoptedStyleSheets as CSSStyleSheet[]));
@@ -166,7 +175,6 @@ export function extractMatchedRules(
     // Ignore
   }
 
-  // 3. Check if element is inside ShadowRoot
   try {
     const rootNode = el.getRootNode();
     if (rootNode instanceof ShadowRoot) {
@@ -189,7 +197,6 @@ export function extractMatchedRules(
       cssRules = sheet.cssRules;
       if (!cssRules) continue;
     } catch {
-      // CORS-restricted stylesheet
       skippedSheetsCount++;
       continue;
     }
@@ -201,8 +208,9 @@ export function extractMatchedRules(
     }
   }
 
-  // Fallback: If element is not Tailwind and has very few matched rules, extract essential computed styles
-  const { isTailwindElement } = classifyClasses(Array.from(el.classList || []));
+  // Fallback computed style capture
+  const classList = getElementClassList(el);
+  const { isTailwindElement } = classifyClasses(classList);
   if (!isTailwindElement && matchedRules.length === 0 && el instanceof HTMLElement) {
     try {
       const computed = window.getComputedStyle(el);
@@ -220,7 +228,9 @@ export function extractMatchedRules(
       }
 
       if (computedProperties.length > 0) {
-        const selector = el.id ? `#${el.id}` : el.className ? `.${el.className.trim().split(/\s+/)[0]}` : el.tagName.toLowerCase();
+        const classStr = getElementClassString(el);
+        const firstClass = classStr.trim().split(/\s+/)[0];
+        const selector = el.id ? `#${el.id}` : firstClass ? `.${firstClass}` : el.tagName.toLowerCase();
         matchedRules.push({
           selector,
           properties: computedProperties,
@@ -328,7 +338,6 @@ function extractRuleProperties(style: CSSStyleDeclaration, contextEl?: Element):
     const priority = style.getPropertyPriority(propName);
 
     if (value && value.trim()) {
-      // Resolve CSS Custom Properties (var(--...)) to actual values if context element is provided
       if (contextEl && value.includes('var(--')) {
         value = resolveCssVariables(value, contextEl);
       }
@@ -356,7 +365,6 @@ function resolveCssVariables(cssValue: string, el: Element): string {
   }
 }
 
-// Cascade resolution and property deduplication
 export function resolveCascadeProperties(
   matchedRules: StyleRule[],
   inlineStyle: CSSStyleDeclaration | Record<string, string>
@@ -407,7 +415,6 @@ export function resolveCascadeProperties(
     }
   }
 
-  // Merge inline styles
   if (inlineStyle) {
     if (typeof (inlineStyle as CSSStyleDeclaration).getPropertyValue === 'function') {
       const decl = inlineStyle as CSSStyleDeclaration;
@@ -457,7 +464,6 @@ export function resolveCascadeProperties(
   return cleanResult;
 }
 
-// Recursive Element Extractor with full Shadow DOM and SVG support
 export function extractElementTree(
   rootEl: Element,
   maxNodes = 300,
@@ -468,10 +474,9 @@ export function extractElementTree(
   function traverse(el: Element, depth: number): ExtractedElement {
     totalNodes++;
     const tagName = el.tagName.toLowerCase();
-    const classList = Array.from(el.classList || []);
+    const classList = getElementClassList(el);
     const { tailwindClasses, customClasses, isTailwindElement } = classifyClasses(classList);
 
-    // Collect all HTML / SVG attributes
     const attributes: Record<string, string> = {};
     for (let i = 0; i < el.attributes.length; i++) {
       const attr = el.attributes[i];
@@ -489,7 +494,6 @@ export function extractElementTree(
       }
     }
 
-    // Direct text content
     let textContent = '';
     for (const childNode of Array.from(el.childNodes)) {
       if (childNode.nodeType === Node.TEXT_NODE && childNode.textContent?.trim()) {
@@ -498,7 +502,6 @@ export function extractElementTree(
     }
     textContent = textContent.trim();
 
-    // Comprehensive asset scanning
     const assets: ExtractedAsset[] = scanElementAssets(el);
 
     const rect = el.getBoundingClientRect();
@@ -511,12 +514,10 @@ export function extractElementTree(
 
     const domPath = getElementDOMPath(el);
 
-    // Recursively extract children including Shadow DOM
     const children: ExtractedElement[] = [];
     if (depth < maxDepth && totalNodes < maxNodes) {
       let childElements = Array.from(el.children);
       
-      // Pierce Shadow DOM
       if (el.shadowRoot) {
         childElements = [...childElements, ...Array.from(el.shadowRoot.children)];
       }
@@ -563,15 +564,24 @@ export function getElementDOMPath(el: Element): string {
       parts.unshift(selector);
       break;
     } else {
-      if (current.className && typeof current.className === 'string') {
-        const first = current.className.trim().split(/\s+/)[0];
-        if (first && !first.includes(':') && !first.includes('/')) {
-          selector += `.${first}`;
-        }
+      const classStr = getElementClassString(current);
+      const first = classStr.trim().split(/\s+/)[0];
+      if (first && !first.includes(':') && !first.includes('/')) {
+        selector += `.${first}`;
       }
       parts.unshift(selector);
     }
-    current = current.parentElement;
+    
+    if (current.parentElement) {
+      current = current.parentElement;
+    } else {
+      const root = current.getRootNode();
+      if (root instanceof ShadowRoot) {
+        current = root.host;
+      } else {
+        break;
+      }
+    }
   }
 
   return parts.join(' > ') || el.tagName.toLowerCase();
@@ -581,7 +591,6 @@ function scanElementAssets(el: Element): ExtractedAsset[] {
   const assets: ExtractedAsset[] = [];
   const origin = window.location.origin;
 
-  // 1. <img> src and srcset
   if (el.tagName.toLowerCase() === 'img') {
     const src = el.getAttribute('src');
     if (src && !src.startsWith('data:image/svg+xml;base64,PHN2Zy')) {
@@ -615,7 +624,6 @@ function scanElementAssets(el: Element): ExtractedAsset[] {
     }
   }
 
-  // 2. <picture> <source>
   if (el.tagName.toLowerCase() === 'source') {
     const srcset = el.getAttribute('srcset') || el.getAttribute('src');
     if (srcset) {
@@ -633,7 +641,6 @@ function scanElementAssets(el: Element): ExtractedAsset[] {
     }
   }
 
-  // 3. <video> and <audio>
   if (el.tagName.toLowerCase() === 'video' || el.tagName.toLowerCase() === 'audio') {
     const src = el.getAttribute('src');
     const poster = el.getAttribute('poster');
@@ -666,7 +673,6 @@ function scanElementAssets(el: Element): ExtractedAsset[] {
     }
   }
 
-  // 4. SVG Elements
   if (el.tagName.toLowerCase() === 'svg') {
     assets.push({
       id: `svg-${Math.random().toString(36).substring(2, 9)}`,
@@ -679,7 +685,6 @@ function scanElementAssets(el: Element): ExtractedAsset[] {
     });
   }
 
-  // 5. CSS Background Images
   if (el instanceof HTMLElement) {
     try {
       const bg = el.style.backgroundImage || window.getComputedStyle(el).backgroundImage;

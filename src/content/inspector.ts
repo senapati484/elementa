@@ -1,5 +1,5 @@
 import { ElementaOverlay } from './overlay';
-import { extractElementTree, getElementDOMPath } from './extract-styles';
+import { extractElementTree, getElementDOMPath, getElementClassList } from './extract-styles';
 import { findSimilarElements } from './similar-patterns';
 import { runFullExtraction } from '../shared/codegen';
 import { 
@@ -15,6 +15,17 @@ import {
   InspectionStatusChangedMessage
 } from '../shared/messages';
 
+const DEFAULT_OPTIONS: ExportOptions = {
+  format: 'react-tsx',
+  scopeClassPrefix: 'elementa-comp',
+  inlineAssets: false,
+  assetThresholdKb: 50,
+  includeTypeScript: true,
+  componentName: 'ExtractedComponent',
+  extractAsRepeated: true,
+  maxSubtreeDepth: 15,
+};
+
 export class InspectorManager {
   private isInspecting = false;
   private overlay: ElementaOverlay | null = null;
@@ -25,6 +36,7 @@ export class InspectorManager {
   private highlightSimilar = true;
   private mutationObserver: MutationObserver | null = null;
   private rafId: number | null = null;
+  private currentOptions: ExportOptions = DEFAULT_OPTIONS;
 
   constructor() {
     this.handleMouseMove = this.handleMouseMove.bind(this);
@@ -33,7 +45,11 @@ export class InspectorManager {
     this.handleScrollOrResize = this.handleScrollOrResize.bind(this);
   }
 
-  public start(): void {
+  public start(options?: Partial<ExportOptions>): void {
+    if (options) {
+      this.currentOptions = { ...this.currentOptions, ...options };
+    }
+
     if (this.isInspecting) return;
     this.isInspecting = true;
 
@@ -43,7 +59,6 @@ export class InspectorManager {
       this.overlay.mount();
     }
 
-    // Attach capture-phase event listeners to guarantee intercepting before host page
     window.addEventListener('mousemove', this.handleMouseMove, { capture: true, passive: true });
     window.addEventListener('click', this.handleClick, { capture: true });
     window.addEventListener('keydown', this.handleKeyDown, { capture: true });
@@ -131,7 +146,6 @@ export class InspectorManager {
   private handleClick(e: MouseEvent): void {
     if (!this.isInspecting) return;
 
-    // Block navigation, link clicks, form submissions, and host event listeners
     e.preventDefault();
     e.stopPropagation();
     e.stopImmediatePropagation();
@@ -142,10 +156,14 @@ export class InspectorManager {
     this.selectElement(target);
   }
 
-  public selectElement(el: Element): void {
+  public selectElement(el: Element, options?: ExportOptions): void {
     this.selectedElement = el;
     this.childNavigationStack = [];
     this.similarElements = findSimilarElements(el);
+
+    if (options) {
+      this.currentOptions = options;
+    }
 
     if (this.overlay) {
       this.overlay.hideHover();
@@ -162,6 +180,14 @@ export class InspectorManager {
     const summary = this.buildElementSummary(el);
     const breadcrumbs = this.buildBreadcrumbs(el);
 
+    // Run extraction immediately upon selection
+    let extraction: ComponentExtractionResult | null = null;
+    try {
+      extraction = this.extract(this.currentOptions);
+    } catch (err) {
+      console.warn('[Elementa] Extraction error during selection:', err);
+    }
+
     const msg: ElementSelectedMessage = {
       type: 'ELEMENT_SELECTED',
       payload: {
@@ -170,6 +196,7 @@ export class InspectorManager {
         similarCount: this.similarElements.length,
         hasParent: !!el.parentElement && el.parentElement !== document.documentElement,
         hasChildren: el.children.length > 0,
+        extractionResult: extraction,
       },
     };
     this.safeSendMessage(msg);
@@ -196,7 +223,6 @@ export class InspectorManager {
   public navigateParent(): void {
     if (!this.selectedElement) return;
     
-    // Support Shadow Root parent traversal
     let parent: Element | null = this.selectedElement.parentElement;
     if (!parent) {
       const root = this.selectedElement.getRootNode();
@@ -221,7 +247,6 @@ export class InspectorManager {
     }
 
     if (this.selectedElement) {
-      // Check shadow root children or direct children
       if (this.selectedElement.shadowRoot && this.selectedElement.shadowRoot.firstElementChild) {
         this.selectElement(this.selectedElement.shadowRoot.firstElementChild);
       } else if (this.selectedElement.firstElementChild) {
@@ -267,6 +292,7 @@ export class InspectorManager {
   }
 
   public extract(options: ExportOptions): ComponentExtractionResult | null {
+    this.currentOptions = options;
     const target = this.selectedElement || this.hoveredElement;
     if (!target) return null;
 
@@ -320,7 +346,6 @@ export class InspectorManager {
     }
   }
 
-  // Recursive Shadow DOM Piercing element picker
   private getInspectableElementAt(x: number, y: number): Element | null {
     const elements = document.elementsFromPoint(x, y);
     for (let el of elements) {
@@ -328,7 +353,6 @@ export class InspectorManager {
       if (el.closest && el.closest('#elementa-overlay-root')) continue;
       if (el === document.body || el === document.documentElement) continue;
 
-      // Pierce open Shadow Root if present
       while (el && (el as any).shadowRoot) {
         const inner = (el as any).shadowRoot.elementFromPoint(x, y);
         if (inner && inner !== el) {
@@ -345,8 +369,7 @@ export class InspectorManager {
 
   private buildElementSummary(el: Element): ElementSummary {
     const rect = el.getBoundingClientRect();
-    const rawClass = typeof el.className === 'string' ? el.className : el.getAttribute('class') || '';
-    const classList = rawClass.trim() ? rawClass.trim().split(/\s+/) : [];
+    const classList = getElementClassList(el);
 
     return {
       tagName: el.tagName.toLowerCase(),
@@ -369,8 +392,7 @@ export class InspectorManager {
     let depth = 0;
 
     while (current && current !== document.documentElement) {
-      const rawClass = typeof current.className === 'string' ? current.className : current.getAttribute('class') || '';
-      const classList = rawClass.trim() ? rawClass.trim().split(/\s+/) : [];
+      const classList = getElementClassList(current);
 
       items.unshift({
         tagName: current.tagName.toLowerCase(),

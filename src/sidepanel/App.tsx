@@ -154,7 +154,12 @@ export default function App() {
           setSimilarCount(message.payload.similarCount || 0);
           setHasParent(message.payload.hasParent);
           setHasChildren(message.payload.hasChildren);
-          triggerExtraction(options);
+          
+          if (message.payload.extractionResult) {
+            setExtractionResult(message.payload.extractionResult);
+          } else {
+            triggerExtraction(options);
+          }
           break;
         }
 
@@ -304,7 +309,6 @@ export default function App() {
       {/* Top Header */}
       <header className="flex items-center justify-between px-3.5 py-2.5 bg-dark-surface border-b border-dark-border z-20">
         <div className="flex items-center gap-2">
-          {/* Logo Prism */}
           <div className="w-6 h-6 rounded bg-gradient-to-br from-indigo-500 via-indigo-600 to-cyan-400 p-[1px] shadow-glow flex items-center justify-center">
             <div className="w-full h-full bg-dark-bg rounded-[3px] flex items-center justify-center">
               <Layers size={13} className="text-indigo-400" />
@@ -572,7 +576,6 @@ export default function App() {
             </button>
           </div>
 
-          {/* Refresh extraction */}
           {selectedSummary && (
             <button
               onClick={() => triggerExtraction(options)}
@@ -593,7 +596,7 @@ export default function App() {
               <p className="text-xs text-slate-600 mt-1 max-w-[240px]">
                 {isRestrictedPage
                   ? 'Navigate to any regular website to begin inspecting elements.'
-                  : 'Click "Inspect" above and click any element on the page to extract it.'}
+                  : 'Click on any card, button, or container on the page to instantly extract it.'}
               </p>
             </div>
           ) : activeTab === 'preview' ? (
