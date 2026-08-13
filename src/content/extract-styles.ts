@@ -1,6 +1,5 @@
 import { StyleProperty, StyleRule, PseudoRule, ExtractedElement, ExtractedAsset } from '../shared/types';
 
-// Safe class string extractor supporting SVGAnimatedString, HTML, and XML elements
 export function getElementClassString(el: Element): string {
   if (!el) return '';
   if (typeof el.className === 'string') return el.className;
@@ -590,61 +589,120 @@ export function getElementDOMPath(el: Element): string {
 function scanElementAssets(el: Element): ExtractedAsset[] {
   const assets: ExtractedAsset[] = [];
   const origin = window.location.origin;
+  const tag = el.tagName.toLowerCase();
 
-  if (el.tagName.toLowerCase() === 'img') {
-    const src = el.getAttribute('src');
-    if (src && !src.startsWith('data:image/svg+xml;base64,PHN2Zy')) {
-      const resolved = resolveUrl(src, origin);
+  // 1. <img> and lazy-loaded image attributes
+  if (tag === 'img') {
+    const rawSrc =
+      el.getAttribute('src') ||
+      el.getAttribute('data-src') ||
+      el.getAttribute('data-original') ||
+      el.getAttribute('data-url') ||
+      el.getAttribute('data-hires');
+
+    if (rawSrc) {
+      const resolved = resolveUrl(rawSrc, origin);
       assets.push({
         id: `img-${Math.random().toString(36).substring(2, 9)}`,
         type: 'image',
-        originalUrl: src,
+        originalUrl: rawSrc,
         resolvedUrl: resolved,
         filename: extractFilenameFromUrl(resolved, 'image.png'),
-        isInlined: false,
+        isInlined: rawSrc.startsWith('data:'),
         elementTag: 'img',
       });
     }
 
-    const srcset = el.getAttribute('srcset');
+    const srcset = el.getAttribute('srcset') || el.getAttribute('data-srcset');
     if (srcset) {
-      const firstSrc = srcset.split(',')[0].trim().split(/\s+/)[0];
-      if (firstSrc && firstSrc !== src) {
-        const resolved = resolveUrl(firstSrc, origin);
-        assets.push({
-          id: `srcset-${Math.random().toString(36).substring(2, 9)}`,
-          type: 'image',
-          originalUrl: firstSrc,
-          resolvedUrl: resolved,
-          filename: extractFilenameFromUrl(resolved, 'image-hd.png'),
-          isInlined: false,
-          elementTag: 'img',
-        });
+      const items = srcset.split(',').map((s) => s.trim().split(/\s+/)[0]).filter(Boolean);
+      for (const item of items) {
+        if (item && item !== rawSrc) {
+          const resolved = resolveUrl(item, origin);
+          assets.push({
+            id: `srcset-${Math.random().toString(36).substring(2, 9)}`,
+            type: 'image',
+            originalUrl: item,
+            resolvedUrl: resolved,
+            filename: extractFilenameFromUrl(resolved, 'image-hd.png'),
+            isInlined: item.startsWith('data:'),
+            elementTag: 'img',
+          });
+        }
       }
     }
   }
 
-  if (el.tagName.toLowerCase() === 'source') {
-    const srcset = el.getAttribute('srcset') || el.getAttribute('src');
-    if (srcset) {
-      const firstSrc = srcset.split(',')[0].trim().split(/\s+/)[0];
+  // 2. <source> in <picture> / <audio> / <video>
+  if (tag === 'source') {
+    const src = el.getAttribute('srcset') || el.getAttribute('src') || el.getAttribute('data-src');
+    if (src) {
+      const firstSrc = src.split(',')[0].trim().split(/\s+/)[0];
       const resolved = resolveUrl(firstSrc, origin);
       assets.push({
         id: `source-${Math.random().toString(36).substring(2, 9)}`,
         type: 'image',
         originalUrl: firstSrc,
         resolvedUrl: resolved,
-        filename: extractFilenameFromUrl(resolved, 'source-image.png'),
-        isInlined: false,
+        filename: extractFilenameFromUrl(resolved, 'source-asset.png'),
+        isInlined: firstSrc.startsWith('data:'),
         elementTag: 'source',
       });
     }
   }
 
-  if (el.tagName.toLowerCase() === 'video' || el.tagName.toLowerCase() === 'audio') {
+  // 3. Inline <svg> Elements - Convert to full data URI
+  if (tag === 'svg') {
+    try {
+      const svgOuter = el.outerHTML;
+      const cleanSvg = svgOuter.replace(/data-elementa-[a-z]+="[^"]*"/g, '');
+      const svgDataUri = `data:image/svg+xml;utf8,${encodeURIComponent(cleanSvg)}`;
+      
+      const ariaLabel = el.getAttribute('aria-label') || el.getAttribute('aria-labelledby');
+      const classStr = getElementClassString(el);
+      const iconName = ariaLabel
+        ? ariaLabel.toLowerCase().replace(/[^a-z0-9_-]/g, '-')
+        : classStr
+        ? classStr.split(/\s+/)[0].replace(/[^a-z0-9_-]/g, '-')
+        : 'icon';
+
+      assets.push({
+        id: `svg-${Math.random().toString(36).substring(2, 9)}`,
+        type: 'svg',
+        originalUrl: svgDataUri,
+        resolvedUrl: svgDataUri,
+        dataUri: svgDataUri,
+        filename: `${iconName}.svg`,
+        isInlined: true,
+        elementTag: 'svg',
+      });
+    } catch {
+      // Ignore
+    }
+  }
+
+  // 4. SVG <image> and <use> tags
+  if (tag === 'image') {
+    const href = el.getAttribute('href') || el.getAttribute('xlink:href');
+    if (href) {
+      const resolved = resolveUrl(href, origin);
+      assets.push({
+        id: `svgimg-${Math.random().toString(36).substring(2, 9)}`,
+        type: 'image',
+        originalUrl: href,
+        resolvedUrl: resolved,
+        filename: extractFilenameFromUrl(resolved, 'svg-image.png'),
+        isInlined: href.startsWith('data:'),
+        elementTag: 'image',
+      });
+    }
+  }
+
+  // 5. <video> and <audio> elements
+  if (tag === 'video' || tag === 'audio') {
     const src = el.getAttribute('src');
     const poster = el.getAttribute('poster');
-    const isVideo = el.tagName.toLowerCase() === 'video';
+    const isVideo = tag === 'video';
 
     if (src) {
       const resolved = resolveUrl(src, origin);
@@ -655,7 +713,7 @@ function scanElementAssets(el: Element): ExtractedAsset[] {
         resolvedUrl: resolved,
         filename: extractFilenameFromUrl(resolved, isVideo ? 'video.mp4' : 'audio.mp3'),
         isInlined: false,
-        elementTag: el.tagName.toLowerCase(),
+        elementTag: tag,
       });
     }
 
@@ -673,39 +731,37 @@ function scanElementAssets(el: Element): ExtractedAsset[] {
     }
   }
 
-  if (el.tagName.toLowerCase() === 'svg') {
-    assets.push({
-      id: `svg-${Math.random().toString(36).substring(2, 9)}`,
-      type: 'svg',
-      originalUrl: 'inline-svg',
-      resolvedUrl: 'inline-svg',
-      filename: 'icon.svg',
-      isInlined: true,
-      elementTag: 'svg',
-    });
-  }
-
+  // 6. CSS background-image and mask-image
   if (el instanceof HTMLElement) {
     try {
-      const bg = el.style.backgroundImage || window.getComputedStyle(el).backgroundImage;
-      if (bg && bg !== 'none') {
-        const matches = bg.matchAll(/url\(['"]?([^'"]+)['"]?\)/g);
-        for (const match of matches) {
-          const rawUrl = match[1];
-          if (rawUrl && !rawUrl.startsWith('data:')) {
-            const resolved = resolveUrl(rawUrl, origin);
-            assets.push({
-              id: `bg-${Math.random().toString(36).substring(2, 9)}`,
-              type: 'background',
-              originalUrl: rawUrl,
-              resolvedUrl: resolved,
-              filename: extractFilenameFromUrl(resolved, 'bg-image.png'),
-              isInlined: false,
-              elementTag: el.tagName.toLowerCase(),
-            });
+      const style = el.style;
+      const computed = window.getComputedStyle(el);
+      const bg = style.backgroundImage || computed.backgroundImage;
+      const mask = style.maskImage || computed.maskImage || (style as any).webkitMaskImage || (computed as any).webkitMaskImage;
+
+      const checkUrlString = (str: string, assetType: 'background' | 'image') => {
+        if (str && str !== 'none') {
+          const matches = str.matchAll(/url\(['"]?([^'"]+)['"]?\)/g);
+          for (const match of matches) {
+            const rawUrl = match[1];
+            if (rawUrl && !rawUrl.startsWith('data:')) {
+              const resolved = resolveUrl(rawUrl, origin);
+              assets.push({
+                id: `bg-${Math.random().toString(36).substring(2, 9)}`,
+                type: assetType,
+                originalUrl: rawUrl,
+                resolvedUrl: resolved,
+                filename: extractFilenameFromUrl(resolved, 'bg-image.png'),
+                isInlined: false,
+                elementTag: tag,
+              });
+            }
           }
         }
-      }
+      };
+
+      checkUrlString(bg, 'background');
+      checkUrlString(mask, 'image');
     } catch {
       // Ignore
     }
@@ -725,8 +781,9 @@ export function resolveUrl(url: string, base: string): string {
 export function extractFilenameFromUrl(url: string, fallback: string): string {
   try {
     const pathname = new URL(url).pathname;
-    const name = pathname.split('/').pop();
-    if (name && name.includes('.')) return name;
+    const cleanPath = pathname.split('?')[0].split('#')[0];
+    const name = cleanPath.split('/').pop();
+    if (name && name.includes('.') && name.length > 2) return name;
     return fallback;
   } catch {
     return fallback;

@@ -15,15 +15,26 @@ function isInspectableUrl(url?: string): boolean {
   );
 }
 
-// Configure side panel behavior: open side panel on extension icon click
+function getExtensionFromMime(mime: string): string {
+  if (mime.includes('svg')) return '.svg';
+  if (mime.includes('png')) return '.png';
+  if (mime.includes('jpeg') || mime.includes('jpg')) return '.jpg';
+  if (mime.includes('webp')) return '.webp';
+  if (mime.includes('gif')) return '.gif';
+  if (mime.includes('avif')) return '.avif';
+  if (mime.includes('mp4')) return '.mp4';
+  if (mime.includes('webm')) return '.webm';
+  if (mime.includes('mp3') || mime.includes('mpeg')) return '.mp3';
+  return '.png';
+}
+
 chrome.runtime.onInstalled.addListener(() => {
-  console.log('[Elementa] Background service worker installed');
+  console.log('[Elementa] Background service worker active');
   chrome.sidePanel
     .setPanelBehavior({ openPanelOnActionClick: true })
     .catch((err) => console.warn('[Elementa] Failed to set panel behavior:', err));
 });
 
-// Fallback listener for action clicked
 chrome.action.onClicked.addListener(async (tab) => {
   if (tab.windowId) {
     try {
@@ -34,7 +45,7 @@ chrome.action.onClicked.addListener(async (tab) => {
   }
 });
 
-// Message router & Cross-Origin Asset Fetcher
+// Message Router & High-Performance Cross-Origin Asset Fetcher
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (!message || !message.type) return false;
 
@@ -43,7 +54,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return false;
   }
 
-  // Cross-Origin Asset Fetcher (bypasses CORS restrictions using host_permissions)
+  // Cross-Origin Asset Fetcher (Bypasses CORS via host_permissions: ["<all_urls>"])
   if (message.type === 'FETCH_ASSET_BLOB') {
     (async () => {
       try {
@@ -53,38 +64,58 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           return;
         }
 
-        const response = await fetch(url);
+        // If already a Data URI or inline SVG, return directly
+        if (url.startsWith('data:')) {
+          sendResponse({
+            success: true,
+            dataUri: url,
+            mimeType: url.split(';')[0].replace('data:', '') || 'image/png',
+            sizeBytes: Math.round(url.length * 0.75),
+          });
+          return;
+        }
+
+        const response = await fetch(url, {
+          headers: {
+            'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+          },
+        });
+
         if (!response.ok) {
           sendResponse({ success: false, error: `HTTP ${response.status} ${response.statusText}` });
           return;
         }
 
-        const blob = await response.blob();
-        const mimeType = blob.type || 'application/octet-stream';
-        
-        // Convert blob to base64 data URI
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          sendResponse({
-            success: true,
-            dataUri: reader.result as string,
-            mimeType,
-            sizeBytes: blob.size,
-          });
-        };
-        reader.onerror = () => {
-          sendResponse({ success: false, error: 'Failed to convert blob to data URI' });
-        };
-        reader.readAsDataURL(blob);
+        const mimeType = response.headers.get('content-type') || 'image/png';
+        const buffer = await response.arrayBuffer();
+        const bytes = new Uint8Array(buffer);
+
+        // Fast chunked base64 encoder
+        let binary = '';
+        const CHUNK_SIZE = 8192;
+        for (let i = 0; i < bytes.length; i += CHUNK_SIZE) {
+          binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + CHUNK_SIZE)));
+        }
+
+        const base64 = btoa(binary);
+        const dataUri = `data:${mimeType};base64,${base64}`;
+
+        sendResponse({
+          success: true,
+          dataUri,
+          mimeType,
+          sizeBytes: buffer.byteLength,
+          suggestedExtension: getExtensionFromMime(mimeType),
+        });
       } catch (err: any) {
-        console.warn('[Elementa] Background fetch failed for URL:', message.payload?.url, err);
-        sendResponse({ success: false, error: err?.message || 'Network fetch failed' });
+        console.warn('[Elementa] Asset fetch error for URL:', message.payload?.url, err);
+        sendResponse({ success: false, error: err?.message || 'Fetch failed' });
       }
     })();
-    return true; // Keep channel open for async response
+    return true;
   }
 
-  // Handle sidepanel requests that route to active tab content script
+  // Active Tab Messaging Router
   if (
     message.type === 'START_INSPECT' ||
     message.type === 'STOP_INSPECT' ||
@@ -110,12 +141,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           return;
         }
 
-        // Try sending message to content script
         try {
           const response = await chrome.tabs.sendMessage(activeTab.id, message);
           sendResponse(response);
         } catch (err: any) {
-          // If content script was not yet injected on an existing tab before extension was installed, inject it
           console.log('[Elementa] Injecting content script into active tab:', activeTab.id);
           const manifest = chrome.runtime.getManifest();
           const scriptFiles = manifest.content_scripts?.[0]?.js || [];
@@ -127,7 +156,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
                 files: scriptFiles,
               });
 
-              // Give script a moment to initialize and retry
               const retryResponse = await chrome.tabs.sendMessage(activeTab.id, message);
               sendResponse(retryResponse);
               return;
@@ -148,7 +176,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         sendResponse({ error: err?.message || 'Failed to message content script' });
       }
     })();
-    return true; // Keep channel open for async response
+    return true;
   }
 
   return false;
