@@ -1,103 +1,78 @@
-import { ExtractedElement, StyleRule, PseudoRule } from '../types';
+import { ExtractedElement } from '../types';
 
 export function generateHtmlAndCss(
   root: ExtractedElement,
-  scopePrefix = 'elementa-scope'
+  scopePrefix = 'elementa-comp'
 ): {
   html: string;
   css: string;
   fullDoc: string;
   scopeClass: string;
 } {
-  const scopeClass = `${scopePrefix}-${Math.random().toString(36).substring(2, 7)}`;
-  const allRules: StyleRule[] = [];
-  const allPseudos: PseudoRule[] = [];
+  const scopeId = Math.random().toString(36).substring(2, 7);
+  const scopeClass = `${scopePrefix}-${scopeId}`;
 
-  // Collect all rules throughout the subtree
-  function collectRules(el: ExtractedElement) {
-    if (el.matchedRules) allRules.push(...el.matchedRules);
-    if (el.pseudoRules) allPseudos.push(...el.pseudoRules);
-    if (el.children) {
-      for (const child of el.children) collectRules(child);
-    }
-  }
-  collectRules(root);
-
-  // Clean and deduplicate CSS rules
   const cssRulesMap = new Map<string, Map<string, string>>();
+  let nodeCounter = 0;
 
-  for (const rule of allRules) {
-    const sel = rule.selector;
-    if (!cssRulesMap.has(sel)) {
-      cssRulesMap.set(sel, new Map());
+  // Process and scope every node in the DOM tree
+  function processNode(el: ExtractedElement, isRoot = false): string {
+    const nodeId = `${scopeClass}-${nodeCounter++}`;
+    const tag = el.tagName.toLowerCase();
+    const isSelfClosing = ['img', 'input', 'br', 'hr', 'meta', 'link', 'source'].includes(tag);
+
+    // Collect all resolved properties for this specific element
+    const props = new Map<string, string>();
+
+    // 1. Matched CSS rules
+    if (el.matchedRules) {
+      for (const rule of el.matchedRules) {
+        for (const p of rule.properties) {
+          if (p.value && p.value.trim()) {
+            props.set(p.property, `${p.value}${p.important ? ' !important' : ''}`);
+          }
+        }
+      }
     }
-    const propMap = cssRulesMap.get(sel)!;
-    for (const prop of rule.properties) {
-      propMap.set(prop.property, `${prop.value}${prop.important ? ' !important' : ''}`);
+
+    // 2. Inline styles
+    if (el.inlineStyles) {
+      for (const [k, v] of Object.entries(el.inlineStyles)) {
+        if (v && v.trim()) {
+          props.set(k, v.trim());
+        }
+      }
     }
-  }
 
-  // Generate CSS string scoped
-  const cssLines: string[] = [];
-  cssLines.push(`/* Scoped Styles for ${root.tagName} component */`);
-
-  for (const [sel, props] of cssRulesMap.entries()) {
-    if (props.size === 0) continue;
-    // Prefix selector with scope wrapper
-    const scopedSelector = `.${scopeClass} ${sel}`.trim();
-    cssLines.push(`${scopedSelector} {`);
-    for (const [prop, val] of props.entries()) {
-      cssLines.push(`  ${prop}: ${val};`);
+    if (props.size > 0) {
+      cssRulesMap.set(`.${nodeId}`, props);
     }
-    cssLines.push('}\n');
-  }
 
-  // Add pseudo rules
-  const pseudoMap = new Map<string, Map<string, string>>();
-  for (const pseudo of allPseudos) {
-    const sel = pseudo.selector;
-    if (!pseudoMap.has(sel)) {
-      pseudoMap.set(sel, new Map());
+    // Pseudo rules (hover, focus, active, before, after)
+    if (el.pseudoRules) {
+      for (const pseudo of el.pseudoRules) {
+        const pseudoSel = `.${nodeId}${pseudo.pseudo || ''}`;
+        if (!cssRulesMap.has(pseudoSel)) {
+          cssRulesMap.set(pseudoSel, new Map());
+        }
+        const pMap = cssRulesMap.get(pseudoSel)!;
+        for (const p of pseudo.properties) {
+          pMap.set(p.property, `${p.value}${p.important ? ' !important' : ''}`);
+        }
+      }
     }
-    const pMap = pseudoMap.get(sel)!;
-    for (const prop of pseudo.properties) {
-      pMap.set(prop.property, `${prop.value}${prop.important ? ' !important' : ''}`);
-    }
-  }
 
-  for (const [sel, props] of pseudoMap.entries()) {
-    if (props.size === 0) continue;
-    const scopedSelector = `.${scopeClass} ${sel}`.trim();
-    cssLines.push(`${scopedSelector} {`);
-    for (const [prop, val] of props.entries()) {
-      cssLines.push(`  ${prop}: ${val};`);
-    }
-    cssLines.push('}\n');
-  }
-
-  const css = cssLines.join('\n');
-
-  // Format clean HTML with the scope wrapper class
-  function renderHtmlTree(el: ExtractedElement, depth: number, isRoot = false): string {
-    const indent = '  '.repeat(depth);
-    const tag = el.tagName;
-    const isSelfClosing = ['img', 'input', 'br', 'hr', 'meta', 'link'].includes(tag);
-
-    // Build attributes
-    const attrs: string[] = [];
-    
-    // Classes
-    const classes = [...el.classList];
+    // Render HTML
+    const classes = [nodeId, ...el.classList];
     if (isRoot) {
       classes.unshift(scopeClass);
     }
-    if (classes.length > 0) {
-      attrs.push(`class="${classes.join(' ')}"`);
-    }
+
+    const attrs: string[] = [];
+    attrs.push(`class="${classes.join(' ')}"`);
 
     if (el.id) attrs.push(`id="${el.id}"`);
 
-    // Standard attributes
     for (const [k, v] of Object.entries(el.attributes)) {
       if (k === 'class' || k === 'id' || k.startsWith('data-elementa')) continue;
       attrs.push(`${k}="${escapeAttr(v)}"`);
@@ -106,27 +81,62 @@ export function generateHtmlAndCss(
     const attrStr = attrs.length > 0 ? ` ${attrs.join(' ')}` : '';
 
     if (isSelfClosing) {
-      return `${indent}<${tag}${attrStr} />`;
+      return `<${tag}${attrStr} />`;
     }
 
     if (el.children.length === 0) {
       const text = el.textContent ? el.textContent.trim() : '';
-      return `${indent}<${tag}${attrStr}>${text}</${tag}>`;
+      return `<${tag}${attrStr}>${text}</${tag}>`;
     }
 
-    const childLines = el.children.map((c) => renderHtmlTree(c, depth + 1)).join('\n');
-    return `${indent}<${tag}${attrStr}>\n${childLines}\n${indent}</${tag}>`;
+    const childHtml = el.children.map((c) => processNode(c, false)).join('\n');
+    return `<${tag}${attrStr}>\n${childHtml}\n</${tag}>`;
   }
 
-  const html = renderHtmlTree(root, 0, true);
+  const html = processNode(root, true);
 
+  // Generate Scoped CSS string
+  const cssLines: string[] = [];
+  cssLines.push(`/* Scoped Styles for <${root.tagName}> Component */`);
+
+  for (const [selector, props] of cssRulesMap.entries()) {
+    if (props.size === 0) continue;
+    cssLines.push(`${selector} {`);
+    for (const [prop, val] of props.entries()) {
+      cssLines.push(`  ${prop}: ${val};`);
+    }
+    cssLines.push('}\n');
+  }
+
+  const css = cssLines.join('\n');
+
+  // Generate self-contained standalone HTML Document for Live Preview
   const fullDoc = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Extracted Component</title>
+  <title>Elementa Preview</title>
   <style>
+    *, *::before, *::after {
+      box-sizing: border-box;
+    }
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      min-height: 100%;
+      background: transparent;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    img, svg, video {
+      max-width: 100%;
+      display: inline-block;
+      vertical-align: middle;
+    }
+    /* Extracted Component Scoped Styles */
 ${css}
   </style>
 </head>

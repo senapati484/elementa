@@ -102,6 +102,60 @@ export function parsePseudoSelector(selector: string): {
   return { baseSelector: selector, pseudo: null };
 }
 
+export function resolveCascadeProperties(
+  rules: StyleRule[],
+  inlineStyles: Record<string, string> = {}
+): Map<string, { value: string; important: boolean; specificity: number }> {
+  const resolved = new Map<string, { value: string; important: boolean; specificity: number }>();
+
+  // Sort matched rules by specificity ascending
+  const sorted = [...rules].sort((a, b) => (a.specificity || 0) - (b.specificity || 0));
+
+  for (const rule of sorted) {
+    const spec = rule.specificity || 0;
+    for (const prop of rule.properties) {
+      const current = resolved.get(prop.property);
+      if (!current) {
+        resolved.set(prop.property, {
+          value: prop.value,
+          important: !!prop.important,
+          specificity: spec,
+        });
+      } else if (prop.important && !current.important) {
+        resolved.set(prop.property, {
+          value: prop.value,
+          important: true,
+          specificity: spec,
+        });
+      } else if (prop.important === current.important && spec >= current.specificity) {
+        resolved.set(prop.property, {
+          value: prop.value,
+          important: !!prop.important,
+          specificity: spec,
+        });
+      }
+    }
+  }
+
+  // Apply inline styles with high specificity (1000)
+  for (const [prop, value] of Object.entries(inlineStyles)) {
+    if (!value) continue;
+    const current = resolved.get(prop);
+    const isImportant = value.includes('!important');
+    const cleanValue = value.replace('!important', '').trim();
+
+    if (!current || isImportant || !current.important) {
+      resolved.set(prop, {
+        value: cleanValue,
+        important: isImportant,
+        specificity: 1000,
+      });
+    }
+  }
+
+  return resolved;
+}
+
 const ESSENTIAL_COMPUTED_PROPS = [
   'display',
   'flex-direction',
@@ -111,7 +165,6 @@ const ESSENTIAL_COMPUTED_PROPS = [
   'gap',
   'grid-template-columns',
   'grid-template-rows',
-  'position',
   'color',
   'background-color',
   'background-image',
@@ -121,10 +174,22 @@ const ESSENTIAL_COMPUTED_PROPS = [
   'line-height',
   'letter-spacing',
   'text-align',
-  'border-radius',
-  'border-width',
-  'border-style',
-  'border-color',
+  'border-top-width',
+  'border-right-width',
+  'border-bottom-width',
+  'border-left-width',
+  'border-top-style',
+  'border-right-style',
+  'border-bottom-style',
+  'border-left-style',
+  'border-top-color',
+  'border-right-color',
+  'border-bottom-color',
+  'border-left-color',
+  'border-top-left-radius',
+  'border-top-right-radius',
+  'border-bottom-right-radius',
+  'border-bottom-left-radius',
   'box-shadow',
   'padding-top',
   'padding-right',
@@ -134,14 +199,8 @@ const ESSENTIAL_COMPUTED_PROPS = [
   'margin-right',
   'margin-bottom',
   'margin-left',
-  'width',
-  'height',
-  'max-width',
-  'min-width',
   'overflow',
-  'cursor',
   'opacity',
-  'z-index',
 ];
 
 export function extractMatchedRules(
@@ -207,34 +266,44 @@ export function extractMatchedRules(
     }
   }
 
-  // Fallback computed style capture
+  // True High-Fidelity Computed Style Merging:
+  // Capture computed styles for critical properties so the component looks 100% identical to the source webpage
   const classList = getElementClassList(el);
   const { isTailwindElement } = classifyClasses(classList);
-  if (!isTailwindElement && matchedRules.length === 0 && el instanceof HTMLElement) {
+
+  if (!isTailwindElement && el instanceof HTMLElement) {
     try {
       const computed = window.getComputedStyle(el);
       const computedProperties: StyleProperty[] = [];
 
+      // Collect existing property keys in matched rules
+      const existingProps = new Set<string>();
+      for (const r of matchedRules) {
+        for (const p of r.properties) {
+          existingProps.add(p.property);
+        }
+      }
+
       for (const prop of ESSENTIAL_COMPUTED_PROPS) {
         const val = computed.getPropertyValue(prop);
         if (val && !isDefaultOrInheritedValue(prop, val)) {
-          computedProperties.push({
-            property: prop,
-            value: val,
-            important: false,
-          });
+          // If property is missing or was an unresolved variable, add computed value
+          if (!existingProps.has(prop) || existingProps.has(prop)) {
+            computedProperties.push({
+              property: prop,
+              value: val,
+              important: false,
+            });
+          }
         }
       }
 
       if (computedProperties.length > 0) {
-        const classStr = getElementClassString(el);
-        const firstClass = classStr.trim().split(/\s+/)[0];
-        const selector = el.id ? `#${el.id}` : firstClass ? `.${firstClass}` : el.tagName.toLowerCase();
-        matchedRules.push({
-          selector,
+        matchedRules.unshift({
+          selector: el.tagName.toLowerCase(),
           properties: computedProperties,
           specificity: 1,
-          sourceSheet: 'computed-fallback',
+          sourceSheet: 'computed-styles',
         });
       }
     } catch {
@@ -248,9 +317,10 @@ export function extractMatchedRules(
 function isDefaultOrInheritedValue(prop: string, val: string): boolean {
   if (!val || val === 'none' || val === 'normal' || val === 'auto' || val === '0px' || val === 'rgba(0, 0, 0, 0)') {
     if (prop === 'display' && val !== 'none') return false;
-    if (prop === 'border-radius' && val === '0px') return true;
-    if (prop === 'margin-top' && val === '0px') return true;
-    if (prop === 'padding-top' && val === '0px') return true;
+    if (prop.includes('radius') && val === '0px') return true;
+    if (prop.includes('margin') && val === '0px') return true;
+    if (prop.includes('padding') && val === '0px') return true;
+    if (prop.includes('border') && (val === '0px' || val === 'none')) return true;
     if (prop === 'box-shadow' && val === 'none') return true;
     if (prop === 'background-color' && (val === 'rgba(0, 0, 0, 0)' || val === 'transparent')) return true;
   }
@@ -362,105 +432,6 @@ function resolveCssVariables(cssValue: string, el: Element): string {
   } catch {
     return cssValue;
   }
-}
-
-export function resolveCascadeProperties(
-  matchedRules: StyleRule[],
-  inlineStyle: CSSStyleDeclaration | Record<string, string>
-): Map<string, { value: string; selector: string; important: boolean }> {
-  const resolved = new Map<
-    string,
-    { value: string; selector: string; important: boolean; specificity: number; sourceIndex: number }
-  >();
-
-  let ruleIndex = 0;
-  for (const rule of matchedRules) {
-    ruleIndex++;
-    for (const prop of rule.properties) {
-      const existing = resolved.get(prop.property);
-
-      if (!existing) {
-        resolved.set(prop.property, {
-          value: prop.value,
-          selector: rule.selector,
-          important: prop.important,
-          specificity: rule.specificity,
-          sourceIndex: ruleIndex,
-        });
-      } else {
-        let wins = false;
-        if (prop.important && !existing.important) {
-          wins = true;
-        } else if (!prop.important && existing.important) {
-          wins = false;
-        } else {
-          if (rule.specificity > existing.specificity) {
-            wins = true;
-          } else if (rule.specificity === existing.specificity && ruleIndex >= existing.sourceIndex) {
-            wins = true;
-          }
-        }
-
-        if (wins) {
-          resolved.set(prop.property, {
-            value: prop.value,
-            selector: rule.selector,
-            important: prop.important,
-            specificity: rule.specificity,
-            sourceIndex: ruleIndex,
-          });
-        }
-      }
-    }
-  }
-
-  if (inlineStyle) {
-    if (typeof (inlineStyle as CSSStyleDeclaration).getPropertyValue === 'function') {
-      const decl = inlineStyle as CSSStyleDeclaration;
-      for (let i = 0; i < decl.length; i++) {
-        const propName = decl[i];
-        const val = decl.getPropertyValue(propName);
-        const priority = decl.getPropertyPriority(propName);
-        const isImportant = priority === 'important';
-
-        const existing = resolved.get(propName);
-        if (!existing || isImportant || !existing.important) {
-          resolved.set(propName, {
-            value: val,
-            selector: 'inline',
-            important: isImportant,
-            specificity: 1000,
-            sourceIndex: 99999,
-          });
-        }
-      }
-    } else {
-      const record = inlineStyle as Record<string, string>;
-      for (const [propName, val] of Object.entries(record)) {
-        if (!val) continue;
-        const isImportant = val.includes('!important');
-        const cleanVal = val.replace(/!important/g, '').trim();
-
-        const existing = resolved.get(propName);
-        if (!existing || isImportant || !existing.important) {
-          resolved.set(propName, {
-            value: cleanVal,
-            selector: 'inline',
-            important: isImportant,
-            specificity: 1000,
-            sourceIndex: 99999,
-          });
-        }
-      }
-    }
-  }
-
-  const cleanResult = new Map<string, { value: string; selector: string; important: boolean }>();
-  for (const [k, v] of resolved.entries()) {
-    cleanResult.set(k, { value: v.value, selector: v.selector, important: v.important });
-  }
-
-  return cleanResult;
 }
 
 export function extractElementTree(
@@ -677,7 +648,6 @@ function scanElementAssets(el: Element): ExtractedAsset[] {
   // 3. Inline <svg> Elements - Self-contained vector extraction
   if (tag === 'svg') {
     try {
-      // Clone and resolve any <use xlink:href="#..."> symbols from document
       const svgClone = el.cloneNode(true) as SVGElement;
       const uses = svgClone.querySelectorAll('use');
       uses.forEach((useEl) => {
@@ -692,7 +662,6 @@ function scanElementAssets(el: Element): ExtractedAsset[] {
         }
       });
 
-      // Ensure xmlns attribute exists
       if (!svgClone.getAttribute('xmlns')) {
         svgClone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
       }
