@@ -46,7 +46,7 @@ export function classifyClasses(classList: string[]): {
   return { tailwindClasses, customClasses, isTailwindElement };
 }
 
-// Specificity calculation: (inline, IDs, classes/attrs/pseudo-classes, tags/pseudo-elements)
+// Specificity calculation
 export function calculateSpecificity(selector: string): number {
   let idCount = 0;
   let classCount = 0;
@@ -108,7 +108,6 @@ export function resolveCascadeProperties(
 ): Map<string, { value: string; important: boolean; specificity: number }> {
   const resolved = new Map<string, { value: string; important: boolean; specificity: number }>();
 
-  // Sort matched rules by specificity ascending
   const sorted = [...rules].sort((a, b) => (a.specificity || 0) - (b.specificity || 0));
 
   for (const rule of sorted) {
@@ -137,7 +136,6 @@ export function resolveCascadeProperties(
     }
   }
 
-  // Apply inline styles with high specificity (1000)
   for (const [prop, value] of Object.entries(inlineStyles)) {
     if (!value) continue;
     const current = resolved.get(prop);
@@ -155,56 +153,6 @@ export function resolveCascadeProperties(
 
   return resolved;
 }
-
-const ESSENTIAL_COMPUTED_PROPS = [
-  'display',
-  'flex-direction',
-  'flex-wrap',
-  'align-items',
-  'justify-content',
-  'gap',
-  'grid-template-columns',
-  'grid-template-rows',
-  'color',
-  'background-color',
-  'background-image',
-  'font-family',
-  'font-size',
-  'font-weight',
-  'line-height',
-  'letter-spacing',
-  'text-align',
-  'border-top-width',
-  'border-right-width',
-  'border-bottom-width',
-  'border-left-width',
-  'border-top-style',
-  'border-right-style',
-  'border-bottom-style',
-  'border-left-style',
-  'border-top-color',
-  'border-right-color',
-  'border-bottom-color',
-  'border-left-color',
-  'border-top-left-radius',
-  'border-top-right-radius',
-  'border-bottom-right-radius',
-  'border-bottom-left-radius',
-  'box-shadow',
-  'padding-top',
-  'padding-right',
-  'padding-bottom',
-  'padding-left',
-  'margin-top',
-  'margin-right',
-  'margin-bottom',
-  'margin-left',
-  'overflow',
-  'opacity',
-  'fill',
-  'stroke',
-  'cursor',
-];
 
 export function getEffectiveInheritedStyles(el: Element): {
   backgroundColor: string;
@@ -303,6 +251,11 @@ export function extractMatchedRules(
     // Ignore
   }
 
+  let liveDisplay = 'block';
+  try {
+    liveDisplay = window.getComputedStyle(el).display;
+  } catch {}
+
   for (let sIdx = 0; sIdx < allSheets.length; sIdx++) {
     const sheet = allSheets[sIdx];
     let cssRules: CSSRuleList;
@@ -315,34 +268,121 @@ export function extractMatchedRules(
     }
 
     try {
-      scanRules(cssRules, el, sheet.href || `sheet-${sIdx}`, matchedRules, pseudoRules);
+      scanRules(cssRules, el, sheet.href || `sheet-${sIdx}`, matchedRules, pseudoRules, liveDisplay);
     } catch (e) {
       console.warn('[Elementa] Error parsing CSS rules:', e);
     }
   }
 
-  // Capture all real computed visual properties
+  // Precise Computed Visual Styles Extraction (Non-ghost properties only)
   if (el instanceof HTMLElement || el instanceof SVGElement) {
     try {
-      const computed = window.getComputedStyle(el);
+      const comp = window.getComputedStyle(el);
       const computedProperties: StyleProperty[] = [];
 
-      for (const prop of ESSENTIAL_COMPUTED_PROPS) {
-        const val = computed.getPropertyValue(prop);
-        if (val && !isDefaultOrInheritedValue(prop, val)) {
-          computedProperties.push({
-            property: prop,
-            value: val,
-            important: false,
-          });
-        }
+      // 1. Display & Layout
+      const display = comp.display;
+      if (display && display !== 'none') {
+        computedProperties.push({ property: 'display', value: display, important: false });
+      }
+
+      if (display.includes('flex')) {
+        if (comp.flexDirection !== 'row') computedProperties.push({ property: 'flex-direction', value: comp.flexDirection, important: false });
+        if (comp.flexWrap !== 'nowrap') computedProperties.push({ property: 'flex-wrap', value: comp.flexWrap, important: false });
+        if (comp.alignItems && comp.alignItems !== 'normal') computedProperties.push({ property: 'align-items', value: comp.alignItems, important: false });
+        if (comp.justifyContent && comp.justifyContent !== 'normal') computedProperties.push({ property: 'justify-content', value: comp.justifyContent, important: false });
+        if (comp.gap && comp.gap !== 'normal' && comp.gap !== '0px') computedProperties.push({ property: 'gap', value: comp.gap, important: false });
+      }
+
+      if (display.includes('grid')) {
+        if (comp.gridTemplateColumns && comp.gridTemplateColumns !== 'none') computedProperties.push({ property: 'grid-template-columns', value: comp.gridTemplateColumns, important: false });
+        if (comp.gridTemplateRows && comp.gridTemplateRows !== 'none') computedProperties.push({ property: 'grid-template-rows', value: comp.gridTemplateRows, important: false });
+        if (comp.gap && comp.gap !== 'normal' && comp.gap !== '0px') computedProperties.push({ property: 'gap', value: comp.gap, important: false });
+      }
+
+      // 2. Color & Background
+      const color = comp.color;
+      if (color && color !== 'rgba(0, 0, 0, 0)') {
+        computedProperties.push({ property: 'color', value: color, important: false });
+      }
+
+      const bg = comp.backgroundColor;
+      if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') {
+        computedProperties.push({ property: 'background-color', value: bg, important: false });
+      }
+
+      const bgImg = comp.backgroundImage;
+      if (bgImg && bgImg !== 'none') {
+        computedProperties.push({ property: 'background-image', value: bgImg, important: false });
+      }
+
+      // 3. Typography
+      if (comp.fontSize) computedProperties.push({ property: 'font-size', value: comp.fontSize, important: false });
+      if (comp.fontWeight && comp.fontWeight !== '400') computedProperties.push({ property: 'font-weight', value: comp.fontWeight, important: false });
+      if (comp.lineHeight && comp.lineHeight !== 'normal') computedProperties.push({ property: 'line-height', value: comp.lineHeight, important: false });
+      if (comp.textAlign && comp.textAlign !== 'start') computedProperties.push({ property: 'text-align', value: comp.textAlign, important: false });
+
+      // 4. Borders (Only if border actually exists)
+      const topW = comp.borderTopWidth;
+      const rightW = comp.borderRightWidth;
+      const botW = comp.borderBottomWidth;
+      const leftW = comp.borderLeftWidth;
+
+      if (topW && topW !== '0px' && comp.borderTopStyle !== 'none') {
+        computedProperties.push({ property: 'border-top-width', value: topW, important: false });
+        computedProperties.push({ property: 'border-top-style', value: comp.borderTopStyle, important: false });
+        computedProperties.push({ property: 'border-top-color', value: comp.borderTopColor, important: false });
+      }
+      if (rightW && rightW !== '0px' && comp.borderRightStyle !== 'none') {
+        computedProperties.push({ property: 'border-right-width', value: rightW, important: false });
+        computedProperties.push({ property: 'border-right-style', value: comp.borderRightStyle, important: false });
+        computedProperties.push({ property: 'border-right-color', value: comp.borderRightColor, important: false });
+      }
+      if (botW && botW !== '0px' && comp.borderBottomStyle !== 'none') {
+        computedProperties.push({ property: 'border-bottom-width', value: botW, important: false });
+        computedProperties.push({ property: 'border-bottom-style', value: comp.borderBottomStyle, important: false });
+        computedProperties.push({ property: 'border-bottom-color', value: comp.borderBottomColor, important: false });
+      }
+      if (leftW && leftW !== '0px' && comp.borderLeftStyle !== 'none') {
+        computedProperties.push({ property: 'border-left-width', value: leftW, important: false });
+        computedProperties.push({ property: 'border-left-style', value: comp.borderLeftStyle, important: false });
+        computedProperties.push({ property: 'border-left-color', value: comp.borderLeftColor, important: false });
+      }
+
+      // Border Radius
+      if (comp.borderTopLeftRadius && comp.borderTopLeftRadius !== '0px') computedProperties.push({ property: 'border-top-left-radius', value: comp.borderTopLeftRadius, important: false });
+      if (comp.borderTopRightRadius && comp.borderTopRightRadius !== '0px') computedProperties.push({ property: 'border-top-right-radius', value: comp.borderTopRightRadius, important: false });
+      if (comp.borderBottomRightRadius && comp.borderBottomRightRadius !== '0px') computedProperties.push({ property: 'border-bottom-right-radius', value: comp.borderBottomRightRadius, important: false });
+      if (comp.borderBottomLeftRadius && comp.borderBottomLeftRadius !== '0px') computedProperties.push({ property: 'border-bottom-left-radius', value: comp.borderBottomLeftRadius, important: false });
+
+      // Box Shadow
+      if (comp.boxShadow && comp.boxShadow !== 'none') {
+        computedProperties.push({ property: 'box-shadow', value: comp.boxShadow, important: false });
+      }
+
+      // 5. Paddings & Margins (Only non-zero)
+      if (comp.paddingTop && comp.paddingTop !== '0px') computedProperties.push({ property: 'padding-top', value: comp.paddingTop, important: false });
+      if (comp.paddingRight && comp.paddingRight !== '0px') computedProperties.push({ property: 'padding-right', value: comp.paddingRight, important: false });
+      if (comp.paddingBottom && comp.paddingBottom !== '0px') computedProperties.push({ property: 'padding-bottom', value: comp.paddingBottom, important: false });
+      if (comp.paddingLeft && comp.paddingLeft !== '0px') computedProperties.push({ property: 'padding-left', value: comp.paddingLeft, important: false });
+
+      if (comp.marginTop && comp.marginTop !== '0px') computedProperties.push({ property: 'margin-top', value: comp.marginTop, important: false });
+      if (comp.marginRight && comp.marginRight !== '0px') computedProperties.push({ property: 'margin-right', value: comp.marginRight, important: false });
+      if (comp.marginBottom && comp.marginBottom !== '0px') computedProperties.push({ property: 'margin-bottom', value: comp.marginBottom, important: false });
+      if (comp.marginLeft && comp.marginLeft !== '0px') computedProperties.push({ property: 'margin-left', value: comp.marginLeft, important: false });
+
+      // 6. SVG specific attributes
+      const tag = el.tagName.toLowerCase();
+      if (['svg', 'path', 'g', 'circle', 'rect', 'polygon'].includes(tag)) {
+        if (comp.fill && comp.fill !== 'none') computedProperties.push({ property: 'fill', value: comp.fill, important: false });
+        if (comp.stroke && comp.stroke !== 'none') computedProperties.push({ property: 'stroke', value: comp.stroke, important: false });
       }
 
       if (computedProperties.length > 0) {
         matchedRules.push({
           selector: el.tagName.toLowerCase(),
           properties: computedProperties,
-          specificity: 500, // High specificity to guarantee computed fidelity
+          specificity: 500,
           sourceSheet: 'computed-styles',
         });
       }
@@ -354,32 +394,19 @@ export function extractMatchedRules(
   return { matchedRules, pseudoRules, skippedSheetsCount };
 }
 
-function isDefaultOrInheritedValue(prop: string, val: string): boolean {
-  if (!val || val === 'none' || val === 'normal' || val === 'auto' || val === '0px' || val === 'rgba(0, 0, 0, 0)') {
-    if (prop === 'display' && val !== 'none') return false;
-    if (prop.includes('radius') && val === '0px') return true;
-    if (prop.includes('margin') && val === '0px') return true;
-    if (prop.includes('padding') && val === '0px') return true;
-    if (prop.includes('border') && (val === '0px' || val === 'none')) return true;
-    if (prop === 'box-shadow' && val === 'none') return true;
-    if (prop === 'background-color' && (val === 'rgba(0, 0, 0, 0)' || val === 'transparent')) return true;
-    if (prop === 'opacity' && val === '1') return true;
-  }
-  return false;
-}
-
 function scanRules(
   rules: CSSRuleList,
   el: Element,
   sourceSheet: string,
   matchedRules: StyleRule[],
-  pseudoRules: PseudoRule[]
+  pseudoRules: PseudoRule[],
+  liveDisplay: string
 ): void {
   for (let i = 0; i < rules.length; i++) {
     const rule = rules[i];
 
     if ('cssRules' in rule && (rule as CSSGroupingRule).cssRules) {
-      scanRules((rule as CSSGroupingRule).cssRules, el, sourceSheet, matchedRules, pseudoRules);
+      scanRules((rule as CSSGroupingRule).cssRules, el, sourceSheet, matchedRules, pseudoRules, liveDisplay);
       continue;
     }
 
@@ -404,7 +431,7 @@ function scanRules(
         }
 
         if (baseMatches) {
-          const properties = extractRuleProperties(styleRule.style, el);
+          const properties = extractRuleProperties(styleRule.style, el, liveDisplay);
           if (properties.length > 0) {
             pseudoRules.push({
               pseudo: pseudo as any,
@@ -423,7 +450,7 @@ function scanRules(
 
         if (matches) {
           const specificity = calculateSpecificity(subSelector);
-          const properties = extractRuleProperties(styleRule.style, el);
+          const properties = extractRuleProperties(styleRule.style, el, liveDisplay);
           if (properties.length > 0) {
             matchedRules.push({
               selector: subSelector,
@@ -438,7 +465,7 @@ function scanRules(
   }
 }
 
-function extractRuleProperties(style: CSSStyleDeclaration, contextEl?: Element): StyleProperty[] {
+function extractRuleProperties(style: CSSStyleDeclaration, contextEl?: Element, liveDisplay?: string): StyleProperty[] {
   const properties: StyleProperty[] = [];
   if (!style) return properties;
 
@@ -448,6 +475,11 @@ function extractRuleProperties(style: CSSStyleDeclaration, contextEl?: Element):
     const priority = style.getPropertyPriority(propName);
 
     if (value && value.trim()) {
+      // If live display is visible, do not allow inactive stylesheet rules to hide the element
+      if (propName === 'display' && value.trim() === 'none' && liveDisplay && liveDisplay !== 'none') {
+        continue;
+      }
+
       if (contextEl && value.includes('var(--')) {
         value = resolveCssVariables(value, contextEl);
       }
