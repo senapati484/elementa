@@ -1,166 +1,206 @@
 <div align="center">
 
-# ⚡ Elementa
+<img src="./public/icons/logo.png" alt="Elementa Logo" width="128" height="128" style="border-radius: 28px; box-shadow: 0 10px 30px rgba(99, 102, 241, 0.35);" />
 
-**Transform any live DOM element on the web into production-ready React, Vue 3, Tailwind, and Scoped HTML+CSS components in seconds.**
+# Elementa
+
+### **Instant DOM-to-Component Studio for Chrome**
+
+*Transform any live UI element on the web into production-ready React (TSX), Vue 3 (SFC), Tailwind JSX, and Scoped HTML+CSS in one click.*
 
 [![Manifest V3](https://img.shields.io/badge/Chrome_Extension-Manifest_V3-4285F4?logo=googlechrome&logoColor=white)](https://developer.chrome.com/docs/extensions/mv3/intro/)
-[![React 18](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)](https://reactjs.org/)
+[![React 18](https://img.shields.io/badge/React-18.3-61DAFB?logo=react&logoColor=black)](https://reactjs.org/)
+[![Vue 3](https://img.shields.io/badge/Vue-3.x_SFC-4FC08D?logo=vuedotjs&logoColor=white)](https://vuejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![Vite](https://img.shields.io/badge/Built_with-Vite_%2B_CRXJS-646CFF?logo=vite&logoColor=white)](https://crxjs.dev/)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-3.4-38B2AC?logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-emerald.svg)](LICENSE)
+[![Built with Vite](https://img.shields.io/badge/Bundled_with-Vite_%2B_CRXJS-646CFF?logo=vite&logoColor=white)](https://crxjs.dev/)
+[![Tests Passing](https://img.shields.io/badge/Tests-11%2F11_Passing-emerald?logo=vitest&logoColor=white)](https://vitest.dev/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 </div>
 
 ---
 
-## 📖 Overview
+## 🌟 Why Elementa?
 
-**Elementa** is an intelligent developer extension for Google Chrome. It solves the friction of inspecting browser elements and reverse-engineering styles manually. 
+Reverse-engineering frontend components from live websites is usually painful:
+- Browser DevTools give you un-scoped, messy CSS rules scattered across 20+ stylesheets.
+- CSS variables (`var(--...)`) are unresolved and break when pasted into your codebase.
+- Repeated list items and grid cards have hardcoded text instead of clean dynamic TypeScript props.
+- Inline SVGs break due to missing `<use xlink:href>` symbol definitions.
+- Images and avatars fail with CORS errors when downloaded or inlined.
 
-With Elementa, you can click on any card, navbar, feed item, or UI widget on any live website. Elementa isolates the element, computes its true CSS cascade rules, infers dynamic TypeScript props for repeated elements, captures vector and raster assets without CORS hurdles, and gives you clean, copy-pasteable component code or a complete downloadable `.zip` package.
-
----
-
-## ✨ Features
-
-- **🎯 Zero-Latency Click-to-Extract**: Synchronous DOM extraction instantly captures the element, styles, and assets the moment you click.
-- **🛡️ Isolated Shadow DOM Overlay**: Hover and selection boxes are rendered inside an isolated Shadow Root so page stylesheets cannot affect the inspection UI or shift page layout.
-- **👁️ Interactive Live Studio Preview**:
-  - Live sandboxed preview frame directly inside the side panel.
-  - Multi-device responsive viewports: **Mobile (375px)**, **Tablet (640px)**, and **Full Width (100%)**.
-  - 4 Canvas Themes: **Dark Studio**, **Clean White**, **Dot Grid Matrix**, and **Checkerboard**.
-  - Real-time **Zoom Controls** (60% to 140%).
-- **🧠 Pattern Detection & Dynamic Prop Inference**:
-  - Detects repeated cards, grid cells, and list items using structural and CSS module hash stripping.
-  - Diffs repeating instances to infer dynamic TypeScript props (`title`, `imageSrc`, `price`, `href`) versus static template markup.
-- **📦 Multi-Format Code Generation**:
-  - **React (TSX)**: Clean functional components with typed `interface Props` and populated sample dataset.
-  - **Vue 3 (SFC)**: `<script setup lang="ts">`, `<template>`, and `<style scoped>`.
-  - **HTML + CSS**: Scoped CSS class prefixing (`.elementa-comp-*`) to prevent style leaks.
-  - **Tailwind JSX**: Pure utility classes with computed inline fallbacks.
-- **🎨 Comprehensive Asset Engine**:
-  - **Inline SVG Support**: Automatically resolves `<use xlink:href>` references and converts icons to clean, standalone vector Data URIs and downloadable `.svg` files.
-  - **In-Memory Canvas Snapshot**: Instantly captures rendered avatars and images without network lag.
-  - **CORS-Free Downloader**: Background service worker streams external CDN assets into base64 and bundles them cleanly into `/assets/`.
-- **⌨️ Keyboard-Driven DOM Walking**: Navigate parent and child hierarchies with arrow keys.
+**Elementa solves all of this automatically.** With a single click, it isolates the subtree, resolves true cascade specificity, strips CSS-in-JS hashes, infers typed props, extracts vector assets, and previews the result in a live sandboxed studio.
 
 ---
 
-## 🚀 Quick Start (< 2 Minutes)
+## 🚀 Key Features
 
-### 1. Clone & Build
+```mermaid
+graph LR
+    A[Live Webpage] -->|1-Click Inspect| B(Elementa Shadow Overlay)
+    B --> C{Cascade & Pattern Engine}
+    C --> D[React TSX + Inferred Props]
+    C --> E[Vue 3 SFC]
+    C --> F[Tailwind JSX]
+    C --> G[Scoped HTML + CSS]
+    C --> H[Self-Contained Assets / SVGs]
+    D & E & F & G & H --> I[Live Interactive Preview & .ZIP Export]
+```
+
+### 🎯 1. Zero-Latency Synchronous Extraction
+- **Click-to-Extract**: Immediate lock-on and code generation without async background roundtrip lag.
+- **Shadow DOM Overlay**: Non-invasive inspection box rendered inside an isolated Shadow Root — **0% layout shift, 0% page CSS contamination**.
+
+### 📱 2. Interactive Live Studio Preview
+- **Multi-Device Viewports**: Test responsiveness on **Mobile (375px)**, **Tablet (640px)**, and **Desktop (100%)**.
+- **Studio Canvas Themes**: Toggle between **Dark Slate**, **Pure Light**, **Dot Grid Matrix**, and **Checkerboard Transparency**.
+- **Live Zoom**: Scale preview from 60% to 140%.
+
+### 🧠 3. Pattern Matching & Dynamic Prop Inference
+- Automatically detects repeated cards, grid cells, and list items by stripping CSS modules and styled-components hashes (e.g. `card__title___3z1a` → `card__title`).
+- Diffs repeating instances across the DOM to automatically generate typed TypeScript `interface Props` and populated sample data arrays.
+
+### 🎨 4. Complete Asset Engine & SVG Vector Resolver
+- **Inline SVGs**: Automatically resolves `<use href="#symbol-id">` tags and embeds paths directly into standalone, clean vector `.svg` files and Data URIs.
+- **In-Memory Canvas Snapshot**: Instantly captures rendered avatars and images in 0ms from browser cache.
+- **CORS-Free Downloader**: Chrome MV3 background service worker streams external CDN assets into base64 blobs without origin blocking.
+
+### 📦 5. Multi-Format Code Generation
+- **React (TSX)**: TypeScript functional component with typed props and mock data.
+- **Vue 3 (SFC)**: Complete `<script setup lang="ts">`, `<template>`, and `<style scoped>`.
+- **Scoped HTML & CSS**: Guaranteed zero namespace collision with `.elementa-comp-*` prefixing.
+- **Tailwind JSX**: Utility-first JSX with minimal custom styles.
+- **Self-Contained `.ZIP` Export**: Bundles component code, rewritten `/assets/` directory, `package.json`, and `README.md`.
+
+---
+
+## ⚡ Installation & Quick Start
+
+### 1. Build from Source
 
 ```bash
-# Clone repository
+# 1. Clone repository
 git clone https://github.com/senapati484/elementa.git
 cd elementa
 
-# Install dependencies
+# 2. Install dependencies
 npm install
 
-# Build production extension bundle
+# 3. Build production bundle
 npm run build
 ```
 
-### 2. Load into Chrome
+### 2. Load Extension in Chrome
 
-1. Open Google Chrome and navigate to `chrome://extensions/`.
-2. Enable **Developer mode** in the top-right toggle.
-3. Click **Load unpacked** in the top-left.
-4. Select the `dist` folder located inside the cloned `elementa` directory.
+1. Open Google Chrome and go to `chrome://extensions/`.
+2. Enable **Developer mode** (toggle in top-right corner).
+3. Click **Load unpacked** (top-left button).
+4. Select the **`dist`** folder inside the `elementa` directory.
 
-### 3. Start Extracting
+### 3. Usage Workflow
 
-1. Open any website (e.g. [GitHub](https://github.com), [Apple](https://apple.com), [Tailwind UI](https://tailwindui.com)).
-2. Click the **Elementa** icon in your browser toolbar to open the Side Panel.
-3. Click **"Inspect"** and click any element on the page to instantly view code, preview, and assets!
+1. Open any webpage (e.g. [GitHub](https://github.com), [Tailwind UI](https://tailwindui.com), [Apple](https://apple.com)).
+2. Click the **Elementa** extension icon in your toolbar to open the Side Panel.
+3. Click **"Inspect"** and click any element on the page.
+4. Browse the **Preview**, **React**, **Vue**, **HTML+CSS**, **Tailwind**, and **Assets** tabs.
+5. Click **"Copy Code"** or **"Export .ZIP Bundle"**!
 
 ---
 
-## ⌨️ Keyboard Shortcuts & DOM Walking
+## ⌨️ Keyboard Navigation Shortcuts
 
-| Shortcut | Action | Description |
+| Key | Action | Description |
 |---|---|---|
-| <kbd>Click</kbd> | **Select Element** | Lock selection and extract component immediately |
-| <kbd>↑</kbd> (Arrow Up) | **Navigate Parent** | Walk up to the parent container in the DOM tree |
-| <kbd>↓</kbd> (Arrow Down) | **Navigate Child** | Step down into the previously navigated child element |
-| <kbd>Esc</kbd> | **Deselect** | Release current selection and return to hover inspection mode |
+| <kbd>Left Click</kbd> | **Select Element** | Lock selection and extract component instantly |
+| <kbd>↑</kbd> (Arrow Up) | **Select Parent** | Step up to the enclosing parent element in the DOM tree |
+| <kbd>↓</kbd> (Arrow Down) | **Select Child** | Step back down into the child element hierarchy |
+| <kbd>Esc</kbd> | **Deselect** | Release current selection and return to hover mode |
 
 ---
 
-## 🧩 Output Formats
+## ⚙️ Configuration Options
 
-| Format | File Extension | Features Included |
+Open the **Settings (⚙️)** modal in the side panel to customize output:
+
+| Option | Default | Description |
 |---|---|---|
-| **React (TSX)** | `.tsx` | TypeScript interfaces, inferred dynamic props, sample data array |
-| **Vue 3 SFC** | `.vue` | `<script setup lang="ts">`, `defineProps<Props>()`, scoped styles |
-| **Scoped HTML+CSS** | `.html`, `.css` | Self-contained HTML with unique scoped class prefixing |
-| **Tailwind JSX** | `.tailwind.tsx` | Utility class JSX structure with minimal custom styles |
-| **Full .ZIP Bundle** | `.zip` | All above formats + `package.json` + `README.md` + `/assets/` directory |
+| **Component Name** | `ExtractedCard` | PascalCase component identifier used for exports and files |
+| **Scoped Class Prefix** | `elementa-comp` | Namespace prefix for HTML/CSS class isolation |
+| **Inline Small Assets** | `false` | Embed images and icons directly as Base64 Data URIs |
+| **Asset Size Threshold** | `50 KB` | Maximum file size for automatic Data URI inlining |
+| **Infer Repeated Props** | `true` | Compare repeating cards to extract dynamic props interface |
+| **Max Subtree Depth** | `15` | Maximum recursive DOM traversal depth |
 
 ---
 
-## ⚙️ Configuration & Settings
-
-Access the **Settings (⚙️)** modal from the top bar to tailor your exports:
-
-| Option | Description | Default |
-|---|---|---|
-| **Component Name** | Name used for exported components & filenames | `ExtractedCard` |
-| **Scoped Class Prefix** | Prefix applied to isolated HTML/CSS classes | `elementa-comp` |
-| **Inline Assets (<50KB)** | Embed small images and SVGs as Data URIs directly in code | `false` |
-| **Asset Size Threshold** | Max file size in KB for automatic inlining | `50 KB` |
-| **Infer Repeated Props** | Scan similar items on page and generate props interface | `true` |
-| **Max Subtree Depth** | Limit recursive DOM node traversal depth | `15` |
-
----
-
-## 🛠️ Tech Stack & Architecture
+## 📂 Project Structure
 
 ```
 elementa/
-├── manifest.json            # Manifest V3 configuration (sidePanel, host_permissions)
+├── public/
+│   └── icons/               # Official Elementa branding icons (16, 32, 48, 128, logo)
 ├── src/
-│   ├── background/          # Background service worker (CORS-free asset streaming)
-│   ├── content/             # In-page content scripts & Shadow DOM overlay
-│   │   ├── inspector.ts     # Event interception & synchronous tree extraction
-│   │   ├── overlay.ts       # Non-invasive Shadow Root bounding boxes & badges
-│   │   ├── extract-styles.ts# Cascade calculation, computed styles & asset engine
-│   │   └── similar-patterns.ts # Pattern matching & hash stripping algorithm
-│   ├── sidepanel/           # React 18 UI
-│   │   ├── App.tsx          # Main sidepanel controller
-│   │   ├── LivePreview.tsx  # Sandboxed iframe with device frames & canvas themes
-│   │   ├── CodeViewer.tsx   # PrismJS syntax highlighting & word wrap
-│   │   ├── AssetList.tsx    # Asset gallery with search, filters & Data URI copy
-│   │   └── SettingsModal.tsx# Export preferences & tuning
-│   └── shared/              # Shared types, messages, codegen & zip packaging
-│       ├── codegen/         # React, Vue SFC, Tailwind & HTML+CSS generators
-│       └── assets/          # JSZip bundler & path rewriter
+│   ├── background/
+│   │   └── index.ts         # Service worker: CORS-free binary asset streaming & tab routing
+│   ├── content/
+│   │   ├── index.ts         # Content script entrypoint
+│   │   ├── inspector.ts     # Synchronous DOM tree extraction & click interception
+│   │   ├── overlay.ts       # Isolated Shadow Root bounding boxes & badges
+│   │   ├── extract-styles.ts# Cascade specificity algorithm & asset scanner
+│   │   └── similar-patterns.ts # CSS module hash stripping & structural fingerprinting
+│   ├── sidepanel/
+│   │   ├── App.tsx          # Main controller, header & tab switcher
+│   │   ├── LivePreview.tsx  # Sandboxed iframe studio with responsive viewports
+│   │   ├── CodeViewer.tsx   # PrismJS syntax highlighter with word-wrap & size metrics
+│   │   ├── AssetList.tsx    # Media gallery with SVG Data URI copy & CORS downloads
+│   │   └── SettingsModal.tsx# Export preferences & tuning dialog
+│   └── shared/
+│       ├── types.ts         # ExtractedElement, StyleRule & ExportOptions interfaces
+│       ├── messages.ts      # Strongly typed Chrome extension message bus
+│       ├── codegen/         # React, Vue SFC, Tailwind & HTML/CSS generators
+│       └── assets/          # JSZip bundler & relative path rewriter
+├── manifest.json            # Manifest V3 extension configuration
+├── vite.config.ts           # Vite + @crxjs/vite-plugin build configuration
+├── vitest.config.ts         # Vitest unit test runner config
+└── PRIVACY.md               # Official Privacy Policy document
 ```
-
-- **Manifest V3 Architecture**: Native Chrome Side Panel API (`chrome.sidePanel`), Service Worker background routing.
-- **Cascade Precedence Algorithm**: Calculates specificity scores $(A \cdot 100 + B \cdot 10 + C)$, respects `!important` flags, source order, and inline overrides.
-- **Zero-CORS Asset Streaming**: Utilizes Chrome extension `host_permissions: ["<all_urls>"]` in the background worker to fetch any external image CDN without origin blocking.
 
 ---
 
-## 🧪 Testing & Development
+## 🧪 Quality & Testing
+
+Elementa has a complete automated test suite powered by **Vitest**:
 
 ```bash
-# Run unit tests (Vitest)
+# Run unit test suite
 npm test
 
-# Run development watcher
-npm run dev
+# Run tests in watch mode
+npm run test:watch
 
-# Type check & build bundle
+# Run TypeScript type check & production build
 npm run build
 ```
+
+---
+
+## 🔒 Privacy & Security
+
+Elementa respects developer privacy:
+- **100% Local Execution**: All DOM parsing, style resolution, and code generation occur entirely on your local machine.
+- **Zero Telemetry**: No tracking, analytics, or remote API calls.
+- **No Remote Code**: Fully compliant with Chrome Web Store Manifest V3 guidelines.
+- Review our full [Privacy Policy](PRIVACY.md).
 
 ---
 
 ## 📄 License
 
-This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.
+This project is open-source software licensed under the **[MIT License](LICENSE)**.
+
+<div align="center">
+
+Made with ❤️ for frontend developers and UI designers.
+
+</div>

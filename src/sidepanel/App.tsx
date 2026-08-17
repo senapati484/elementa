@@ -13,7 +13,6 @@ import { SettingsModal } from './SettingsModal';
 import { exportComponentToZip } from '../shared/assets/zip-exporter';
 import {
   MousePointer,
-  Layers,
   Download,
   Copy,
   Sliders,
@@ -311,10 +310,12 @@ export default function App() {
       {/* Top Header */}
       <header className="flex items-center justify-between px-3.5 py-2.5 bg-dark-surface/90 border-b border-dark-border z-20 backdrop-blur-md">
         <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-indigo-500 via-indigo-600 to-cyan-400 p-[1px] shadow-glow flex items-center justify-center">
-            <div className="w-full h-full bg-dark-bg rounded-[7px] flex items-center justify-center">
-              <Layers size={13} className="text-indigo-400" />
-            </div>
+          <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-indigo-500 via-indigo-600 to-cyan-400 p-[1px] shadow-glow flex items-center justify-center overflow-hidden">
+            <img
+              src="/icons/icon-32.png"
+              alt="Elementa"
+              className="w-full h-full object-cover rounded-[7px]"
+            />
           </div>
           <div className="flex items-center gap-1.5">
             <h1 className="text-xs font-bold tracking-tight text-white">Elementa</h1>
@@ -608,8 +609,12 @@ export default function App() {
         <div className="flex-1 min-h-0">
           {!extractionResult ? (
             <div className="flex flex-col items-center justify-center h-full text-center p-6 bg-dark-surface/60 border border-dark-border rounded-xl text-slate-500 backdrop-blur-sm">
-              <div className="w-12 h-12 rounded-2xl bg-slate-800/50 border border-slate-700/50 flex items-center justify-center mb-3">
-                <Layers size={22} className="text-slate-400 opacity-60" />
+              <div className="w-12 h-12 rounded-2xl bg-slate-800/50 border border-slate-700/50 flex items-center justify-center mb-3 overflow-hidden p-2">
+                <img
+                  src="/icons/icon-48.png"
+                  alt="Elementa"
+                  className="w-full h-full object-contain opacity-70"
+                />
               </div>
               <p className="text-sm font-semibold text-slate-300">Ready to Extract</p>
               <p className="text-xs text-slate-500 mt-1 max-w-[240px] leading-relaxed">
