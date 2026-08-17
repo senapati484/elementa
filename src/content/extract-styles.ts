@@ -201,7 +201,62 @@ const ESSENTIAL_COMPUTED_PROPS = [
   'margin-left',
   'overflow',
   'opacity',
+  'fill',
+  'stroke',
+  'cursor',
 ];
+
+export function getEffectiveInheritedStyles(el: Element): {
+  backgroundColor: string;
+  color: string;
+  fontFamily: string;
+} {
+  let bg = '';
+  let color = '';
+  let font = '';
+
+  let curr: Element | null = el;
+  while (curr && curr !== document.documentElement) {
+    try {
+      const comp = window.getComputedStyle(curr);
+      if (!bg && comp.backgroundColor && comp.backgroundColor !== 'rgba(0, 0, 0, 0)' && comp.backgroundColor !== 'transparent') {
+        bg = comp.backgroundColor;
+      }
+      if (!color && comp.color && comp.color !== 'rgba(0, 0, 0, 0)') {
+        color = comp.color;
+      }
+      if (!font && comp.fontFamily) {
+        font = comp.fontFamily;
+      }
+    } catch {}
+    curr = curr.parentElement;
+  }
+
+  if (!bg) {
+    try {
+      const bodyComp = window.getComputedStyle(document.body);
+      bg = bodyComp.backgroundColor !== 'rgba(0, 0, 0, 0)' && bodyComp.backgroundColor !== 'transparent'
+        ? bodyComp.backgroundColor
+        : window.getComputedStyle(document.documentElement).backgroundColor;
+    } catch {}
+  }
+  if (!color) {
+    try {
+      color = window.getComputedStyle(document.body).color;
+    } catch {}
+  }
+  if (!font) {
+    try {
+      font = window.getComputedStyle(document.body).fontFamily;
+    } catch {}
+  }
+
+  return {
+    backgroundColor: bg || '#0d1117',
+    color: color || '#e6edf3',
+    fontFamily: font || '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+  };
+}
 
 export function extractMatchedRules(
   el: Element,
@@ -266,43 +321,28 @@ export function extractMatchedRules(
     }
   }
 
-  // True High-Fidelity Computed Style Merging:
-  // Capture computed styles for critical properties so the component looks 100% identical to the source webpage
-  const classList = getElementClassList(el);
-  const { isTailwindElement } = classifyClasses(classList);
-
-  if (!isTailwindElement && el instanceof HTMLElement) {
+  // Capture all real computed visual properties
+  if (el instanceof HTMLElement || el instanceof SVGElement) {
     try {
       const computed = window.getComputedStyle(el);
       const computedProperties: StyleProperty[] = [];
 
-      // Collect existing property keys in matched rules
-      const existingProps = new Set<string>();
-      for (const r of matchedRules) {
-        for (const p of r.properties) {
-          existingProps.add(p.property);
-        }
-      }
-
       for (const prop of ESSENTIAL_COMPUTED_PROPS) {
         const val = computed.getPropertyValue(prop);
         if (val && !isDefaultOrInheritedValue(prop, val)) {
-          // If property is missing or was an unresolved variable, add computed value
-          if (!existingProps.has(prop) || existingProps.has(prop)) {
-            computedProperties.push({
-              property: prop,
-              value: val,
-              important: false,
-            });
-          }
+          computedProperties.push({
+            property: prop,
+            value: val,
+            important: false,
+          });
         }
       }
 
       if (computedProperties.length > 0) {
-        matchedRules.unshift({
+        matchedRules.push({
           selector: el.tagName.toLowerCase(),
           properties: computedProperties,
-          specificity: 1,
+          specificity: 500, // High specificity to guarantee computed fidelity
           sourceSheet: 'computed-styles',
         });
       }
@@ -323,6 +363,7 @@ function isDefaultOrInheritedValue(prop: string, val: string): boolean {
     if (prop.includes('border') && (val === '0px' || val === 'none')) return true;
     if (prop === 'box-shadow' && val === 'none') return true;
     if (prop === 'background-color' && (val === 'rgba(0, 0, 0, 0)' || val === 'transparent')) return true;
+    if (prop === 'opacity' && val === '1') return true;
   }
   return false;
 }
@@ -426,7 +467,7 @@ function resolveCssVariables(cssValue: string, el: Element): string {
     const computed = window.getComputedStyle(el);
     return cssValue.replace(/var\((--[a-zA-Z0-9_-]+)(?:,\s*([^)]+))?\)/g, (_, varName, fallback) => {
       const resolved = computed.getPropertyValue(varName)?.trim();
-      if (resolved) return resolved;
+      if (resolved && resolved !== 'initial' && resolved !== 'inherit') return resolved;
       return fallback || varName;
     });
   } catch {
@@ -436,12 +477,13 @@ function resolveCssVariables(cssValue: string, el: Element): string {
 
 export function extractElementTree(
   rootEl: Element,
-  maxNodes = 300,
-  maxDepth = 25
+  maxNodes = 400,
+  maxDepth = 30
 ): ExtractedElement {
   let totalNodes = 0;
+  const inherited = getEffectiveInheritedStyles(rootEl);
 
-  function traverse(el: Element, depth: number): ExtractedElement {
+  function traverse(el: Element, depth: number, isRoot = false): ExtractedElement {
     totalNodes++;
     const tagName = el.tagName.toLowerCase();
     const classList = getElementClassList(el);
@@ -461,6 +503,20 @@ export function extractElementTree(
       for (let i = 0; i < el.style.length; i++) {
         const prop = el.style[i];
         inlineStyles[prop] = el.style.getPropertyValue(prop);
+      }
+    }
+
+    // If root element has transparent background, ensure inherited page background & text color are supplied
+    if (isRoot) {
+      const rootComp = window.getComputedStyle(el);
+      if (rootComp.backgroundColor === 'rgba(0, 0, 0, 0)' || rootComp.backgroundColor === 'transparent') {
+        inlineStyles['background-color'] = inherited.backgroundColor;
+      }
+      if (!inlineStyles['color']) {
+        inlineStyles['color'] = inherited.color;
+      }
+      if (!inlineStyles['font-family']) {
+        inlineStyles['font-family'] = inherited.fontFamily;
       }
     }
 
@@ -495,7 +551,7 @@ export function extractElementTree(
       for (const child of childElements) {
         if (child.getAttribute && child.getAttribute('data-elementa-ignore')) continue;
         if (totalNodes >= maxNodes) break;
-        children.push(traverse(child, depth + 1));
+        children.push(traverse(child, depth + 1, false));
       }
     }
 
@@ -520,7 +576,7 @@ export function extractElementTree(
     };
   }
 
-  return traverse(rootEl, 0);
+  return traverse(rootEl, 0, true);
 }
 
 export function getElementDOMPath(el: Element): string {
