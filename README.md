@@ -21,6 +21,40 @@
 
 ---
 
+## 📸 Product Screenshots & Live Demo
+
+<div align="center">
+
+### 1. Precision Element Inspection & Hover Tracking
+*Non-invasive Shadow DOM bounding boxes track any component live on the page without layout shifts or style contamination.*
+
+<img src="./public/screenshots/1.png" alt="Elementa Precision Hover Inspection" width="90%" style="border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 12px 36px rgba(0,0,0,0.5);" />
+
+<br/><br/>
+
+### 2. Multi-Format Code Generation (React TSX, Vue SFC, Tailwind JSX)
+*Synchronous code generation with inferred dynamic TypeScript props, scoped CSS class isolation, and syntax highlighting.*
+
+<img src="./public/screenshots/2.png" alt="Elementa Multi-Format Code Generation" width="90%" style="border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 12px 36px rgba(0,0,0,0.5);" />
+
+<br/><br/>
+
+### 3. High-Fidelity Asset & SVG Vector Extraction
+*Resolves inline SVGs into self-contained vector assets and downloads external CDN images with zero CORS errors.*
+
+<img src="./public/screenshots/3.png" alt="Elementa Asset Extraction and Vector Resolution" width="90%" style="border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 12px 36px rgba(0,0,0,0.5);" />
+
+<br/><br/>
+
+### 4. Interactive Live Studio Preview & Responsive Viewports
+*Test extracted components in a sandboxed iframe with Mobile (375px), Tablet (640px), and Full Width presets across Dark/Light/Grid studio canvases.*
+
+<img src="./public/screenshots/4.png" alt="Elementa Live Studio Preview" width="90%" style="border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 12px 36px rgba(0,0,0,0.5);" />
+
+</div>
+
+---
+
 ## 🌟 Why Elementa?
 
 Reverse-engineering frontend components from live websites is usually painful:
@@ -139,7 +173,8 @@ Open the **Settings (⚙️)** modal in the side panel to customize output:
 ```
 elementa/
 ├── public/
-│   └── icons/               # Official Elementa branding icons (16, 32, 48, 128, logo)
+│   ├── icons/               # Official Elementa branding icons (16, 32, 48, 128, logo)
+│   └── screenshots/         # Product screenshots for documentation and store
 ├── src/
 │   ├── background/
 │   │   └── index.ts         # Service worker: CORS-free binary asset streaming & tab routing
