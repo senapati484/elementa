@@ -31,6 +31,7 @@ import {
   Eye,
   LayoutTemplate,
   CheckCheck,
+  Package,
 } from 'lucide-react';
 
 const DEFAULT_OPTIONS: ExportOptions = {
@@ -309,23 +310,30 @@ export default function App() {
     <div className="flex flex-col h-screen w-full bg-dark-bg text-slate-100 font-sans select-none overflow-hidden antialiased">
       {/* Top Header */}
       <header className="flex items-center justify-between px-3.5 py-2.5 bg-dark-surface/90 border-b border-dark-border z-20 backdrop-blur-md">
-        <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-indigo-500 via-indigo-600 to-cyan-400 p-[1px] shadow-glow flex items-center justify-center overflow-hidden">
-            <img
-              src="/icons/icon-32.png"
-              alt="Elementa"
-              className="w-full h-full object-cover rounded-[7px]"
-            />
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-500 via-indigo-600 to-cyan-400 p-[1px] shadow-glow flex items-center justify-center flex-shrink-0">
+            <div className="w-full h-full bg-dark-bg rounded-[10px] flex items-center justify-center overflow-hidden p-1">
+              <img
+                src="/icons/icon-48.png"
+                alt="Elementa Logo"
+                className="w-full h-full object-contain"
+              />
+            </div>
           </div>
-          <div className="flex items-center gap-1.5">
-            <h1 className="text-xs font-bold tracking-tight text-white">Elementa</h1>
-            <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-indigo-950/80 text-indigo-300 font-mono font-medium border border-indigo-700/40">
-              v1.0
+          <div className="flex flex-col min-w-0">
+            <div className="flex items-center gap-1.5">
+              <h1 className="text-xs font-bold tracking-tight text-white leading-none">Elementa</h1>
+              <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-indigo-950/90 text-indigo-300 font-mono font-medium border border-indigo-700/50 leading-none">
+                v1.0
+              </span>
+            </div>
+            <span className="text-[10px] text-slate-400 truncate mt-1 font-medium leading-none">
+              DOM to React, Vue & Tailwind Studio
             </span>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-shrink-0">
           {activeHost && !isRestrictedPage && (
             <div className="hidden sm:flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-800/80 border border-slate-700/60 text-[10px] text-slate-300 font-mono">
               <Globe size={10} className="text-indigo-400" />
@@ -336,7 +344,7 @@ export default function App() {
           {/* Settings Button */}
           <button
             onClick={() => setIsSettingsOpen(true)}
-            title="Settings & Export Config"
+            title="Settings & Export Preferences"
             className="p-1.5 rounded-lg bg-dark-card hover:bg-slate-700/60 text-slate-400 hover:text-white border border-dark-border transition active:scale-95 cursor-pointer"
           >
             <Sliders size={13} />
@@ -402,7 +410,7 @@ export default function App() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 min-w-0">
               <div
-                className={`w-2.5 h-2.5 rounded-full ${
+                className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
                   isRestrictedPage
                     ? 'bg-amber-500'
                     : selectedSummary
@@ -434,16 +442,20 @@ export default function App() {
                     {hoverSummary.classList[0] ? `.${hoverSummary.classList[0]}` : ''}&gt;
                   </span>
                 ) : isInspecting ? (
-                  <span className="text-slate-400 animate-pulse font-medium">Click any element on webpage...</span>
+                  <span className="text-slate-300 font-medium animate-pulse">
+                    Hover over elements & click to extract
+                  </span>
                 ) : (
-                  <span className="text-slate-500 font-medium">Click &quot;Inspect&quot; to begin extracting</span>
+                  <span className="text-slate-400 font-medium">
+                    Click &quot;Inspect&quot; to begin component extraction
+                  </span>
                 )}
               </div>
             </div>
 
             {/* DOM Hierarchy Navigation Tools */}
             {selectedSummary && (
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1 flex-shrink-0">
                 <button
                   onClick={() => handleNavigateDom('parent')}
                   disabled={!hasParent}
@@ -608,20 +620,45 @@ export default function App() {
         {/* Dynamic Display Area */}
         <div className="flex-1 min-h-0">
           {!extractionResult ? (
-            <div className="flex flex-col items-center justify-center h-full text-center p-6 bg-dark-surface/60 border border-dark-border rounded-xl text-slate-500 backdrop-blur-sm">
-              <div className="w-12 h-12 rounded-2xl bg-slate-800/50 border border-slate-700/50 flex items-center justify-center mb-3 overflow-hidden p-2">
+            <div className="flex flex-col items-center justify-center h-full text-center p-5 bg-dark-surface/60 border border-dark-border rounded-xl text-slate-400 backdrop-blur-sm">
+              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-500/20 via-purple-500/10 to-transparent border border-indigo-500/30 flex items-center justify-center mb-3.5 shadow-glow p-2.5">
                 <img
                   src="/icons/icon-48.png"
                   alt="Elementa"
-                  className="w-full h-full object-contain opacity-70"
+                  className="w-full h-full object-contain"
                 />
               </div>
-              <p className="text-sm font-semibold text-slate-300">Ready to Extract</p>
-              <p className="text-xs text-slate-500 mt-1 max-w-[240px] leading-relaxed">
-                {isRestrictedPage
-                  ? 'Navigate to any regular website to begin inspecting components.'
-                  : 'Click on any card, button, or container on the webpage to extract clean code instantly.'}
+
+              <h3 className="text-sm font-bold text-white tracking-tight">
+                Extract Live DOM to Clean Code
+              </h3>
+              <p className="text-xs text-slate-400 mt-1 max-w-[260px] leading-relaxed">
+                Click <span className="text-indigo-300 font-semibold">&quot;Inspect&quot;</span> in the top bar, then click any card, navbar, button, or feed item on the page.
               </p>
+
+              {/* Feature Highlights Matrix */}
+              <div className="grid grid-cols-1 gap-2 mt-4 w-full max-w-[280px] text-left">
+                <div className="flex items-center gap-2 p-2 rounded-lg bg-dark-card/60 border border-dark-border text-[11px] text-slate-300">
+                  <div className="w-5 h-5 rounded bg-indigo-500/20 text-indigo-300 flex items-center justify-center flex-shrink-0">
+                    <Code size={11} />
+                  </div>
+                  <span>React (TSX) &amp; Vue 3 SFC with inferred props</span>
+                </div>
+
+                <div className="flex items-center gap-2 p-2 rounded-lg bg-dark-card/60 border border-dark-border text-[11px] text-slate-300">
+                  <div className="w-5 h-5 rounded bg-cyan-500/20 text-cyan-300 flex items-center justify-center flex-shrink-0">
+                    <Zap size={11} />
+                  </div>
+                  <span>Tailwind JSX &amp; Scoped CSS class isolation</span>
+                </div>
+
+                <div className="flex items-center gap-2 p-2 rounded-lg bg-dark-card/60 border border-dark-border text-[11px] text-slate-300">
+                  <div className="w-5 h-5 rounded bg-amber-500/20 text-amber-300 flex items-center justify-center flex-shrink-0">
+                    <Package size={11} />
+                  </div>
+                  <span>Self-contained SVG vector &amp; .ZIP package export</span>
+                </div>
+              </div>
             </div>
           ) : activeTab === 'preview' ? (
             <LivePreview htmlDoc={extractionResult.generatedCode.htmlCss.fullDoc} />
