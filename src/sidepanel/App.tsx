@@ -25,8 +25,6 @@ import {
   Image as ImageIcon,
   RefreshCw,
   Zap,
-  AlertTriangle,
-  ExternalLink,
   Globe,
   Eye,
   LayoutTemplate,
@@ -187,7 +185,7 @@ export default function App() {
 
   const toggleInspect = async () => {
     if (isRestrictedPage) {
-      showToast('Cannot inspect internal chrome:// pages. Open any regular website first!');
+      showToast('Navigate to any website to inspect and extract components.');
       return;
     }
 
@@ -300,16 +298,14 @@ export default function App() {
     }
   };
 
-  const openSamplePage = (url: string) => {
-    chrome.tabs.create({ url });
-  };
-
-  const activeHost = activeTabInfo.url ? new URL(activeTabInfo.url).hostname : '';
+  const activeHost = activeTabInfo.url && isInspectableUrl(activeTabInfo.url)
+    ? new URL(activeTabInfo.url).hostname
+    : '';
 
   return (
     <div className="flex flex-col h-screen w-full bg-dark-bg text-slate-100 font-sans select-none overflow-hidden antialiased">
       {/* Top Header */}
-      <header className="flex items-center justify-between px-3.5 py-2.5 bg-dark-surface/90 border-b border-dark-border z-20 backdrop-blur-md">
+      <header className="flex items-center justify-between px-3.5 py-2.5 bg-dark-surface/90 border-b border-dark-border z-20 backdrop-blur-md flex-shrink-0">
         <div className="flex items-center gap-2.5 min-w-0">
           <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-500 via-indigo-600 to-cyan-400 p-[1px] shadow-glow flex items-center justify-center flex-shrink-0">
             <div className="w-full h-full bg-dark-bg rounded-[10px] flex items-center justify-center overflow-hidden p-1">
@@ -334,7 +330,7 @@ export default function App() {
         </div>
 
         <div className="flex items-center gap-2 flex-shrink-0">
-          {activeHost && !isRestrictedPage && (
+          {activeHost && (
             <div className="hidden sm:flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-800/80 border border-slate-700/60 text-[10px] text-slate-300 font-mono">
               <Globe size={10} className="text-indigo-400" />
               <span className="truncate max-w-[90px]">{activeHost}</span>
@@ -353,11 +349,8 @@ export default function App() {
           {/* Inspect Mode Toggle Button */}
           <button
             onClick={toggleInspect}
-            disabled={isRestrictedPage}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-150 shadow-sm cursor-pointer ${
-              isRestrictedPage
-                ? 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700/50'
-                : isInspecting
+              isInspecting
                 ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-glow-teal ring-2 ring-emerald-400/40'
                 : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-glow active:scale-95'
             }`}
@@ -368,52 +361,16 @@ export default function App() {
         </div>
       </header>
 
-      {/* Restricted Page Notice Banner */}
-      {isRestrictedPage && (
-        <div className="mx-3 mt-3 p-3 rounded-xl bg-amber-950/40 border border-amber-500/40 text-amber-200 text-xs flex flex-col gap-2 shadow-lg">
-          <div className="flex items-start gap-2">
-            <AlertTriangle size={15} className="text-amber-400 flex-shrink-0 mt-0.5" />
-            <div>
-              <div className="font-semibold text-amber-300">Internal Browser Page Detected</div>
-              <div className="text-[11px] text-amber-200/80 mt-0.5 leading-relaxed">
-                Chrome security blocks all extensions from running on <code className="bg-black/40 px-1 py-0.5 rounded text-amber-300">chrome://</code> pages and the Chrome Web Store.
-              </div>
-            </div>
-          </div>
-          <div className="pt-2 border-t border-amber-500/20 flex items-center justify-between">
-            <span className="text-[11px] text-amber-300 font-medium">Test on live sample sites:</span>
-            <div className="flex gap-1.5">
-              <button
-                onClick={() => openSamplePage('https://github.com')}
-                className="px-2 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 rounded text-[11px] font-semibold transition flex items-center gap-1 cursor-pointer"
-              >
-                <span>GitHub</span>
-                <ExternalLink size={10} />
-              </button>
-              <button
-                onClick={() => openSamplePage('https://apple.com')}
-                className="px-2 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 rounded text-[11px] font-semibold transition flex items-center gap-1 cursor-pointer"
-              >
-                <span>Apple</span>
-                <ExternalLink size={10} />
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-h-0 p-3 gap-2.5 overflow-hidden">
         {/* Component Hierarchy & Status Card */}
-        <section className="bg-dark-surface/90 border border-dark-border rounded-xl p-2.5 flex flex-col gap-2 shadow-sm backdrop-blur-sm">
+        <section className="bg-dark-surface/90 border border-dark-border rounded-xl p-2.5 flex flex-col gap-2 shadow-sm backdrop-blur-sm flex-shrink-0">
           {/* Header Row */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 min-w-0">
               <div
                 className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
-                  isRestrictedPage
-                    ? 'bg-amber-500'
-                    : selectedSummary
+                  selectedSummary
                     ? 'bg-emerald-400 ring-4 ring-emerald-400/20 animate-pulse'
                     : isInspecting
                     ? 'bg-indigo-400 animate-ping'
@@ -421,12 +378,7 @@ export default function App() {
                 }`}
               />
               <div className="text-xs truncate">
-                {isRestrictedPage ? (
-                  <span className="text-amber-400/90 truncate flex items-center gap-1">
-                    <Globe size={11} />
-                    {activeTabInfo.url || 'Internal Chrome Page'}
-                  </span>
-                ) : selectedSummary ? (
+                {selectedSummary ? (
                   <div className="flex items-center gap-1.5 truncate">
                     <span className="font-semibold text-emerald-300 font-mono">
                       &lt;{selectedSummary.tagName}
@@ -526,7 +478,7 @@ export default function App() {
         </section>
 
         {/* Tab Navigation Pill Bar */}
-        <div className="flex items-center justify-between border-b border-dark-border pb-1 overflow-x-auto scrollbar-none gap-1">
+        <div className="flex items-center justify-between border-b border-dark-border pb-1 overflow-x-auto scrollbar-none gap-1 flex-shrink-0">
           <div className="flex items-center gap-1">
             <button
               onClick={() => setActiveTab('preview')}
@@ -618,9 +570,9 @@ export default function App() {
         </div>
 
         {/* Dynamic Display Area */}
-        <div className="flex-1 min-h-0">
+        <div className="flex-1 min-h-0 flex flex-col">
           {!extractionResult ? (
-            <div className="flex flex-col items-center justify-center h-full text-center p-5 bg-dark-surface/60 border border-dark-border rounded-xl text-slate-400 backdrop-blur-sm">
+            <div className="flex-1 flex flex-col items-center justify-center text-center p-5 bg-dark-surface/60 border border-dark-border rounded-xl text-slate-400 backdrop-blur-sm">
               <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-500/20 via-purple-500/10 to-transparent border border-indigo-500/30 flex items-center justify-center mb-3.5 shadow-glow p-2.5">
                 <img
                   src="/icons/icon-48.png"
@@ -661,40 +613,52 @@ export default function App() {
               </div>
             </div>
           ) : activeTab === 'preview' ? (
-            <LivePreview htmlDoc={extractionResult.generatedCode.htmlCss.fullDoc} />
+            <div className="flex-1 min-h-0 h-full">
+              <LivePreview htmlDoc={extractionResult.generatedCode.htmlCss.fullDoc} />
+            </div>
           ) : activeTab === 'react' ? (
-            <CodeViewer
-              code={extractionResult.generatedCode.reactTsx.code}
-              language="tsx"
-              filename={`${options.componentName || 'Component'}.tsx`}
-            />
+            <div className="flex-1 min-h-0 h-full">
+              <CodeViewer
+                code={extractionResult.generatedCode.reactTsx.code}
+                language="tsx"
+                filename={`${options.componentName || 'Component'}.tsx`}
+              />
+            </div>
           ) : activeTab === 'vue' ? (
-            <CodeViewer
-              code={extractionResult.generatedCode.vueSfc?.code || ''}
-              language="html"
-              filename={`${options.componentName || 'Component'}.vue`}
-            />
+            <div className="flex-1 min-h-0 h-full">
+              <CodeViewer
+                code={extractionResult.generatedCode.vueSfc?.code || ''}
+                language="html"
+                filename={`${options.componentName || 'Component'}.vue`}
+              />
+            </div>
           ) : activeTab === 'html-css' ? (
-            <CodeViewer
-              code={extractionResult.generatedCode.htmlCss.fullDoc}
-              language="html"
-              filename="index.html"
-            />
+            <div className="flex-1 min-h-0 h-full">
+              <CodeViewer
+                code={extractionResult.generatedCode.htmlCss.fullDoc}
+                language="html"
+                filename="index.html"
+              />
+            </div>
           ) : activeTab === 'tailwind' ? (
-            <CodeViewer
-              code={extractionResult.generatedCode.tailwindJsx.code}
-              language="tsx"
-              filename={`${options.componentName || 'Component'}.tailwind.tsx`}
-            />
+            <div className="flex-1 min-h-0 h-full">
+              <CodeViewer
+                code={extractionResult.generatedCode.tailwindJsx.code}
+                language="tsx"
+                filename={`${options.componentName || 'Component'}.tailwind.tsx`}
+              />
+            </div>
           ) : (
-            <AssetList assets={extractionResult.allAssets} />
+            <div className="flex-1 min-h-0 h-full">
+              <AssetList assets={extractionResult.allAssets} />
+            </div>
           )}
         </div>
       </div>
 
       {/* Floating Action Footer */}
       {extractionResult && (
-        <footer className="p-3 bg-dark-surface/90 border-t border-dark-border flex items-center justify-between gap-2.5 z-20 backdrop-blur-md">
+        <footer className="p-3 bg-dark-surface/90 border-t border-dark-border flex items-center justify-between gap-2.5 z-20 backdrop-blur-md flex-shrink-0">
           <button
             onClick={handleCopyCurrentCode}
             className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-glow transition active:scale-95 cursor-pointer"
